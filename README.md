@@ -1,55 +1,57 @@
 # skills
 
-Skills para Claude Code, testadas em produção no meu fluxo de criação de conteúdo (YouTube, Instagram, roteiro de vídeo).
+Claude Code skills, battle-tested in my own content production workflow (YouTube, Instagram, video scripting).
 
 [![skills.sh](https://skills.sh/b/AndersonAdelino/skills)](https://skills.sh/AndersonAdelino/skills)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![YouTube](https://img.shields.io/badge/YouTube-Anderson%20Adelino-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@oandersonadelino?sub_confirmation=1)
 
-## Instalar
+## Install
 
-Escolha **um** dos caminhos. Os dois entregam as mesmas skills.
+Pick **one**. Both give you the same skills.
 
-### 1. Plugin do Claude Code — recomendado
+### 1. Claude Code plugin — recommended
 
-Não precisa de Node nem de nada instalado antes. Dentro do Claude Code:
+No Node, nothing to install first. Inside Claude Code:
 
 ```
 /plugin marketplace add AndersonAdelino/skills
 /plugin install adelino-skills@adelino
 ```
 
-As skills ficam disponíveis em todos os seus projetos e atualizam sozinhas.
-São somente leitura: para editar, use o caminho 2.
+The skills become available in every project and update themselves.
+They're read-only: to edit them, use option 2.
 
-### 2. skills.sh — se quiser editar as skills
+### 2. skills.sh — if you want to edit the skills
 
-Copia os arquivos para dentro do seu projeto, aí você mexe no que quiser.
-Precisa de [Node](https://nodejs.org) instalado.
+Copies the files into your project so you can change whatever you want.
+Requires [Node](https://nodejs.org).
 
 ```bash
 npx skills add AndersonAdelino/skills
 ```
 
-### 3. Na mão
+### 3. By hand
 
-Copie a pasta da skill que te interessa para `.claude/skills/` no seu projeto,
-ou `~/.claude/skills/` para deixar disponível em todos.
+Copy the skill folder you want into `.claude/skills/` in your project,
+or `~/.claude/skills/` to have it everywhere.
 
 ## Skills
 
-| Skill | O que faz | Dependências |
+| Skill | What it does | Dependencies |
 |---|---|---|
-| [corte-silencio](skills/corte-silencio/) | Corta as pausas de um vídeo de fala e normaliza o áudio em -16 LUFS. Roda offline e de graça. Com `--vicios`, também tira "né", "tá" e gagueira (PT-BR, custa centavos de API) | Python, `ffmpeg`, `auto-editor`, `ffmpeg-normalize` |
+| [cut-silence](skills/cut-silence/) | Cuts the pauses out of talking-head video and normalizes audio to -16 LUFS. Runs offline and free. With `--fillers`, also removes filler words and stutters (PT-BR only, costs cents of API) | Python, `ffmpeg`, `auto-editor`, `ffmpeg-normalize` |
 
-Cada skill tem seu próprio README com instalação, uso e limites conhecidos.
+Each skill has its own README with installation, usage and known limits.
 
 ## Status
 
-Repositório em construção. As skills estão sendo adaptadas do meu hub de produtividade pessoal e chegam aqui aos poucos, sem dado de canal ou caminho pessoal.
+Work in progress. These skills are being adapted from my personal productivity hub and land here gradually, stripped of channel data and personal paths.
 
-## Sobre
+## About
 
-Feito por Anderson Adelino. Conteúdo sobre IA e automação no [YouTube](https://www.youtube.com/@oandersonadelino).
+Built by Anderson Adelino. Content about AI and automation on [YouTube](https://www.youtube.com/@oandersonadelino).
 
-## Licença
+## License
 
-MIT. Use, adapte, redistribua.
+MIT. Use it, adapt it, redistribute it.

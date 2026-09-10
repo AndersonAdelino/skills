@@ -1,3 +1,3 @@
-Cada skill mora na sua própria pasta: `skills/<nome>/SKILL.md`.
+Each skill lives in its own folder: `skills/<name>/SKILL.md`.
 
-Convenção padrão do ecossistema (`npx skills add`, `skills.sh`): o instalador descobre qualquer `SKILL.md` no repositório, mas manter tudo dentro de `skills/` facilita navegação.
+Ecosystem convention (`npx skills add`, `skills.sh`): the installer discovers any `SKILL.md` in the repository, but keeping everything under `skills/` makes it easier to navigate.

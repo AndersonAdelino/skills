@@ -1,0 +1,11 @@
+# Default mode (silence cut + normalization) — offline, no cost
+auto-editor>=29.3,<30
+ffmpeg-normalize>=1.42
+
+# Only for --fillers mode (transcription + LLM judgment via OpenRouter)
+openai>=1.0
+
+# Not on pip: ffmpeg and ffprobe must be on your PATH.
+#   Windows: winget install Gyan.FFmpeg
+#   macOS:   brew install ffmpeg
+#   Linux:   sudo apt install ffmpeg

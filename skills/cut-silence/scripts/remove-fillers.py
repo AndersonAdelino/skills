@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-corte-vicios.py — acha vicios de linguagem e gagueiras num video, com timestamp
+remove-fillers.py — acha vicios de linguagem e gagueiras num video, com timestamp
 
-Script da skill /corte-silencio (modo --vicios).
+Script da skill /cut-silence (modo --fillers).
+
+O texto deste script fica em portugues de proposito: o modo --fillers so funciona
+em PT-BR, entao quem roda ele fala portugues. O resto do repositorio e em ingles.
 
 Transcreve com timestamp por palavra (OpenRouter /audio/transcriptions) e decide
 quais palavras sao parasitas: gagueira por heuristica, filler por julgamento de LLM.
@@ -10,9 +13,9 @@ Na analise NAO corta nada: entrega as faixas para aprovacao. So o modo --aplicar
 mexe em video.
 
 Uso:
-  python corte-vicios.py <video.mp4> [--json <saida.json>]     # analisa, nao corta
-  python corte-vicios.py --aplicar <video.mp4> <vicios.json> <saida.mp4> [--margin 0.2s]
-  python corte-vicios.py --autoteste
+  python remove-fillers.py <video.mp4> [--json <saida.json>]     # analisa, nao corta
+  python remove-fillers.py --aplicar <video.mp4> <fillers.json> <saida.mp4> [--margin 0.2s]
+  python remove-fillers.py --autoteste
 
 Saida: relatorio no terminal + JSON com {cortes: [[ini,fim], ...], cut_out: "..."}
 
@@ -56,9 +59,6 @@ LLM_ATTEMPTS  = 3
 TETO_CORTE_PCT   = 0.15     # nunca remover mais de 15% das palavras
 MAX_SEQUENCIA    = 6        # nunca remover mais de 6 palavras seguidas
 GAP_GAGUEIRA     = 0.6      # repeticao dentro desse intervalo = gagueira, nao enfase
-
-# palavras que quase sempre sao parasitas quando isoladas
-FILLER_OBVIO = {"né", "ne", "hum", "ahn", "ehn", "éé", "ééé", "eh", "uhm", "hmm"}
 
 # Palavras que o LLM NAO pode remover, por mais convencido que esteja.
 # Vocativo: quem grava uma aula fala com a audiencia o tempo todo ("era isso, pessoal").
@@ -272,7 +272,7 @@ def transcrever(video: Path) -> list:
             "ou coloque um .env com essa chave ao lado do script."
         )
 
-    tmp = Path(tempfile.gettempdir()) / "corte-vicios"
+    tmp = Path(tempfile.gettempdir()) / "remove-fillers"
     tmp.mkdir(parents=True, exist_ok=True)
     audio = tmp / f"{slugify(video.stem)}_vicios.mp3"
     print(f"🎵 extraindo audio...", flush=True)
@@ -464,7 +464,7 @@ def autoteste():
 
     # .env: le a chave da skill e ignora o resto. A skill roda dentro do projeto
     # dos outros, entao credencial alheia nao pode entrar junto.
-    env = Path(tempfile.mkdtemp(prefix="corte-vicios-teste-")) / ".env"
+    env = Path(tempfile.mkdtemp(prefix="remove-fillers-teste-")) / ".env"
     env.write_text("# comentario\nSENHA_DO_BANCO=nao-me-leia\n"
                    "OPENROUTER_API_KEY=sk-teste\n", encoding="utf-8")
     assert _chave_no_env(env) == "sk-teste", _chave_no_env(env)
@@ -562,7 +562,7 @@ def main():
     if "--aplicar" in args:
         resto = [a for a in args if a != "--aplicar"]
         if len(resto) != 3:
-            print("Uso: --aplicar <video.mp4> <vicios.json> <saida.mp4> [--margin 0.2s]")
+            print("Uso: --aplicar <video.mp4> <fillers.json> <saida.mp4> [--margin 0.2s]")
             sys.exit(1)
         video, dados, saida = (Path(x) for x in resto)
         for p in (video, dados):
@@ -582,7 +582,7 @@ def main():
         sys.exit(1)
 
     saida = Path(args[args.index("--json") + 1]) if "--json" in args else \
-        video.with_suffix(".vicios.json")
+        video.with_suffix(".fillers.json")
 
     words = transcrever(video)
     if not words:
@@ -607,7 +607,7 @@ def main():
     dados = relatorio(words, limpos, gagueiras, avisos)
     saida.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n💾 {saida}")
-    print(f"\nPara aplicar, o /corte-silencio passa ao auto-editor:\n  --cut-out {dados['cut_out'][:120]}...")
+    print(f"\nPara aplicar, o /cut-silence passa ao auto-editor:\n  --cut-out {dados['cut_out'][:120]}...")
 
 
 if __name__ == "__main__":
