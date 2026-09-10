@@ -121,6 +121,19 @@ Three guarantees the skill takes seriously:
 | Came out too rushed | Raise the margin to `0.3s` or `0.4s` |
 | It's eating natural pauses | Lower the threshold: `--edit "audio:threshold=2%"` |
 
+### Cut strength
+
+`--margin` is the strength knob, and **the scale is inverted**: a smaller margin cuts harder. You don't have to remember the numbers — just ask in words and the skill translates:
+
+| Say this | You get |
+|---|---|
+| "cut it softer" / "it felt rushed" | `0.3s` |
+| nothing — lesson or tutorial | `0.2s` |
+| "a bit tighter" | `0.1s` |
+| "cut it as tight as possible" / ad, VSL | `0.0s` |
+
+Any value in between works too. If you name a number, it uses yours.
+
 ## How `--fillers` works
 
 1. **Analyze** — transcribes with `openai/whisper-large-v3-turbo` (word-level timestamps), catches stutters heuristically and submits the rest to an LLM for judgment

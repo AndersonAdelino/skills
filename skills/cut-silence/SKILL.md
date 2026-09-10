@@ -126,6 +126,17 @@ auto-editor "<video-path>" \
 
 When in doubt between the two, ask whether it's an ad or long-form content. If the user says it feels rushed, raise the margin; if it drags, lower it.
 
+**Careful: the scale is inverted.** A *smaller* margin is a *stronger* cut. When the user asks for cut strength in words, translate with this table — don't reason about it from scratch, it's easy to get backwards:
+
+| The user says | `--margin` |
+|---|---|
+| "softer", "gentler", "leave some breathing room", "it felt rushed" | `0.3s` |
+| "normal", nothing said, lesson or tutorial | `0.2s` (default) |
+| "tighter", "a bit stronger" | `0.1s` |
+| "strongest", "as tight as possible", "glue the speech", ad or VSL | `0.0s` |
+
+These are starting points on a continuous knob, not fixed presets: any value in between is valid. If the user names a number, use theirs.
+
 After running, delete the cache folder: `rm -rf "<OUTPUT>/_tmp/cache_<base-name>"`.
 
 > **Note:** The `--video-codec copy` and `--audio-codec copy` flags are **not supported** in auto-editor 29.x (they raise `Unknown encoder: copy`). Don't try to use them. auto-editor keeps quality close to the original with its default codec (h264+aac).

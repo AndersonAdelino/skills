@@ -1,0 +1,15 @@
+name: test
+
+on: [push, pull_request]
+
+jobs:
+  autoteste:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # no pip install on purpose: the self-test only touches the stdlib
+      # heuristics, so it stays fast and can't break on a dependency
+      - run: python skills/cut-silence/scripts/remove-fillers.py --autoteste
