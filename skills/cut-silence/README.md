@@ -74,6 +74,8 @@ cp .env.example .env
 The script checks the environment first; failing that it walks up the folder tree looking for a `.env`. It reads **only** `OPENROUTER_API_KEY` — no other variable from your `.env` enters the process. Without a key it stops with an explanatory message, it doesn't break halfway.
 
 > ⚠️ **If you use `.env`, make sure it's in your project's `.gitignore`.** This repository's `.gitignore` blocks `.env`, but once you install the skill inside another project, that project's `.gitignore` is the one that counts. A `.env` sitting in `.claude/skills/cut-silence/` will land in your commit if your project has no `.env` rule.
+>
+> Also: a `.env` placed inside the installed skill folder is **wiped by `skills update`**, since the update replaces those files. An environment variable survives updates — that's the main reason to prefer it.
 
 ## Usage
 

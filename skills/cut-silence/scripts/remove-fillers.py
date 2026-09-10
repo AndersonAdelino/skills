@@ -268,8 +268,16 @@ def transcrever(video: Path) -> list:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError(
-            "OPENROUTER_API_KEY nao encontrada. Defina a variavel de ambiente "
-            "ou coloque um .env com essa chave ao lado do script."
+            "OPENROUTER_API_KEY nao encontrada.\n\n"
+            "O modo --fillers precisa de uma chave da OpenRouter para transcrever.\n"
+            "Pegue a sua em: https://openrouter.ai/keys\n\n"
+            "  Windows (PowerShell), permanente:\n"
+            '    [Environment]::SetEnvironmentVariable("OPENROUTER_API_KEY", "sk-or-...", "User")\n'
+            "    (feche e abra o terminal depois)\n\n"
+            "  macOS / Linux:\n"
+            '    export OPENROUTER_API_KEY="sk-or-..."\n\n'
+            "O corte de silencio e a normalizacao NAO precisam de chave:\n"
+            "rode a skill sem --fillers que funciona de graca e offline."
         )
 
     tmp = Path(tempfile.gettempdir()) / "remove-fillers"
@@ -584,7 +592,14 @@ def main():
     saida = Path(args[args.index("--json") + 1]) if "--json" in args else \
         video.with_suffix(".fillers.json")
 
-    words = transcrever(video)
+    # falta de chave e erro de configuracao do usuario, nao bug: mostra a
+    # mensagem limpa em vez de um traceback, que assusta quem nao programa
+    try:
+        words = transcrever(video)
+    except RuntimeError as e:
+        print(f"\n❌ {e}")
+        sys.exit(1)
+
     if not words:
         print("Erro: transcricao voltou sem timestamps por palavra.")
         sys.exit(1)
