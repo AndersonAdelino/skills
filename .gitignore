@@ -7,6 +7,11 @@
 credentials.json
 token.json
 
+# Local dev loop: .claude/skills/<name> is a junction back into skills/<name>,
+# so Claude Code loads the working copy live while developing in this repo.
+# Git would follow the junction and commit every file twice.
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]
