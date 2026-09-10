@@ -1,0 +1,11 @@
+# Modo padrão (corte de silêncio + normalização) — offline, sem custo
+auto-editor>=29.3,<30
+ffmpeg-normalize>=1.42
+
+# Só para o modo --vicios (transcrição + julgamento via OpenRouter)
+openai>=1.0
+
+# Fora do pip: ffmpeg e ffprobe precisam estar no PATH.
+#   Windows: winget install Gyan.FFmpeg
+#   macOS:   brew install ffmpeg
+#   Linux:   sudo apt install ffmpeg

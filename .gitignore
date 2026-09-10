@@ -1,0 +1,29 @@
+# Segredos — nunca commitar. O corte-vicios.py procura um .env subindo as pastas,
+# então um .env largado em qualquer nível deste repo entraria no git sem esse bloqueio.
+.env
+.env.*
+!.env.example
+*.key
+credentials.json
+token.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Mídia de teste — o repo guarda skills, não vídeo
+*.mp4
+*.mov
+*.mkv
+*.mp3
+*.wav
+*.vicios.json
+editado/
+_tmp/
+
+# Sistema
+.DS_Store
+Thumbs.db

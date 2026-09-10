@@ -1,0 +1,24 @@
+{
+  "name": "adelino",
+  "owner": {
+    "name": "Anderson Adelino",
+    "url": "https://www.youtube.com/@oandersonadelino"
+  },
+  "description": "Skills de criação de conteúdo do Anderson Adelino, como plugin instalável do Claude Code.",
+  "plugins": [
+    {
+      "name": "adelino-skills",
+      "source": "./",
+      "description": "Skills para edição de vídeo e produção de conteúdo: corte de silêncio, normalização de áudio e remoção de vícios de linguagem.",
+      "category": "productivity",
+      "keywords": [
+        "video",
+        "ffmpeg",
+        "audio",
+        "edicao",
+        "conteudo",
+        "pt-br"
+      ]
+    }
+  ]
+}

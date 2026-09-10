@@ -1,0 +1,23 @@
+{
+  "name": "adelino-skills",
+  "version": "0.1.0",
+  "description": "Skills para edição de vídeo e produção de conteúdo, testadas em produção: corte de silêncio, normalização de áudio em -16 LUFS e remoção de vícios de linguagem em PT-BR.",
+  "author": {
+    "name": "Anderson Adelino",
+    "url": "https://www.youtube.com/@oandersonadelino"
+  },
+  "homepage": "https://github.com/AndersonAdelino/skills",
+  "repository": "https://github.com/AndersonAdelino/skills",
+  "license": "MIT",
+  "keywords": [
+    "video",
+    "ffmpeg",
+    "audio",
+    "edicao",
+    "conteudo",
+    "pt-br"
+  ],
+  "skills": [
+    "./skills/corte-silencio"
+  ]
+}
