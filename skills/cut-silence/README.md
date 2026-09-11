@@ -2,7 +2,7 @@
 
 Cuts the pauses out of talking-head video and normalizes the audio. In default mode it runs **offline and free**: just `auto-editor` and `ffmpeg`, no API, no upload.
 
-With the `--fillers` flag it also removes filler words and stutters using word-level transcription. That mode costs a few cents of API and is **Brazilian Portuguese only** — see [Language support](#language-support).
+With the `--fillers` flag it also removes filler words, stutters, and **duplicate takes** — where you err, stop, and redo a segment from the top. That mode costs a few cents of API to transcribe; the judging happens in your agent, so nothing is cut without you seeing it first.
 
 <!-- TODO: before/after demo GIF goes here.
      Record one pass of the skill on a real video and drop the file in this folder:
@@ -136,29 +136,89 @@ Any value in between works too. If you name a number, it uses yours.
 
 ## How `--fillers` works
 
-1. **Analyze** — transcribes with `openai/whisper-large-v3-turbo` (word-level timestamps), catches stutters heuristically and submits the rest to an LLM for judgment
-2. **Shows the list and waits for your OK** — nothing is cut without approval. Each cut shows up with its timestamp and the sentence around it
-3. **Apply** — silence cut and filler cut come out in the same `auto-editor` pass, with normalization along for the ride: one encode
+The API only transcribes. **Everything that requires judgment happens in your agent** — not in a remote model behind a prompt. That's cheaper, works in any language, and lets you argue with a cut in conversation instead of hand-editing JSON.
+
+```
+     YOU                    SCRIPT                    API                   AGENT
+      │                       │                        │                      │
+  "cut the ───────────────►  │                        │                      │
+   fillers"              extract audio                 │                      │
+                         (ffmpeg)                      │                      │
+                             │                         │                      │
+                        show estimated ───► "12.4 min · $0.053 · nova-3"      │
+                           cost                        │                      │
+                             │────── transcribe ──────►│                      │
+                             │◄─── words + timings ────│                      │
+                             │                         │                      │
+                      find mechanical                  │                      │
+                       candidates:                     │                      │
+                       · stutters                      │                      │
+                       · duplicates                    │                      │
+                             │                         │                      │
+                          cuts.json ───────────────────────────────────────►  │
+                                                                        1. fix ASR
+                                                                        2. judge fillers
+                                                                        3. confirm duplicates
+      │◄────────────── grouped report ──────────────────────────────────────  │
+      │
+  you approve
+   or object
+      │──────────────────────────────────────────────────────────────────►   │
+                             │◄──────── approved cuts ──────────────────────  │
+                             │
+                    auto-editor: silence + cuts
+                    ffmpeg-normalize: -16 LUFS
+                             │
+                             ▼
+                      video_edited.mp4
+```
+
+**Nothing is cut without your approval.** The report groups cuts by type, with counts, and for duplicates it prints the full text of what leaves and what stays — you can't approve a 5-second cut from a timestamp alone.
+
+### The three things it detects
+
+| Type | What it is | Example |
+|---|---|---|
+| **Filler** | Parasitic sound that leaves without changing meaning | "e aí **né** a gente vai" |
+| **Stutter** | Word repeated glued to itself | "hoje **hoje** eu vou falar" |
+| **Duplicate** | Abandoned take — the speaker erred, stopped, and redid the segment from the top | "Fala pessoal, hoje eu vou…" → *(pause)* → "Olá pessoal, Anderson aqui" |
+
+Stutters and duplicates are found mechanically (free, deterministic, unit-tested). Duplicate detection is anchored on **pauses**: people stop before they restart, so a word not preceded by a ≥0.35s pause can't begin a new take. That anchor is what keeps it from flagging every sentence that happens to end the same way.
+
+### Transcription model and cost
+
+Default: **`deepgram/nova-3`** via OpenRouter. Deepgram derives word timing frame by frame from the acoustic model; Whisper infers it with DTW over cross-attention, which [varies by 100–400 ms](https://arxiv.org/pdf/2408.16589) for the same audio — enough for a cut to clip the next word.
+
+| Video length | `deepgram/nova-3` (default) | `microsoft/mai-transcribe-2` | `openai/whisper-large-v3-turbo` |
+|---|---|---|---|
+| 10 min | **$0.043** | $0.017 | $0.002 |
+| 30 min | **$0.129** | $0.050 | $0.005 |
+| 60 min | **$0.258** | $0.100 | $0.011 |
+
+Switch with `--modelo <id>`. Nova-3 costs the most on this list and it's still 26 cents for an hour of video — pick on timestamp quality, not price. Deepgram also gives **$200 in free credit** to new accounts, around 640 hours of transcription.
+
+The script prints the estimate **before** spending anything, so you can back out.
+
+### Running it by hand
 
 ```bash
-# 1. analyze (cuts nothing)
-python scripts/remove-fillers.py video.mp4 --json fillers.json
+# 1. transcribe + find candidates (cuts nothing)
+python scripts/remove-fillers.py video.mp4 --json cuts.json
 
-# 2. review the list, edit the "cortes" array in the JSON to drop any you want to keep
+# 2. the agent reads cuts.json, judges, and shows you the report
 
-# 3. apply
-python scripts/remove-fillers.py --aplicar video.mp4 fillers.json output.mp4
+# 3. apply the approved ranges
+python scripts/remove-fillers.py --aplicar video.mp4 approved.json output.mp4
 # for ads, glue the speech together:  --margin 0.0s
 ```
 
-The script refuses to do anything stupid on its own:
+Guardrails the script enforces no matter what the agent decides:
 
-- Aborts if the judgment marks more than **15%** of the words (that isn't filler, that's the LLM misunderstanding)
-- Refuses blocks longer than **6 consecutive words**
-- Protects vocatives (`pessoal`, `galera`, `gente`) and pronouns (`eu`, `ele`, `você`) — cutting the subject breaks the sentence
+- Refuses blocks longer than **6 consecutive words** — except duplicates, long by nature
+- Protects vocatives (`pessoal`, `galera`, `gente`) and pronouns (`eu`, `ele`, `você`) from filler judgment
 - On stutters, keeps the **last** repetition, the one that connects to the sentence
 
-Self-test the heuristics without spending API money:
+Self-test every heuristic, offline and free:
 
 ```bash
 python scripts/remove-fillers.py --autoteste
@@ -169,17 +229,23 @@ python scripts/remove-fillers.py --autoteste
 | Feature | Works in |
 |---|---|
 | Silence cut + normalization (default mode) | **Any language.** It's waveform analysis — it never looks at words |
-| Stutter removal (`--fillers`) | **Any language** in principle — the heuristic just spots adjacent repeated words |
-| Filler-word removal (`--fillers`) | **Brazilian Portuguese only** |
+| Stutter and duplicate detection | **Any language.** Both are mechanical: repeated tokens and pause-anchored echoes |
+| Filler judgment | **Any language** — your agent judges, and it isn't tied to one |
 
-Three things pin `--fillers` to PT-BR: the transcription request hardcodes `"language": "pt"`, the judgment prompt is written in Portuguese, and the protected-word list guards Portuguese pronouns and vocatives. Point it at English audio and Whisper is told to transcribe Portuguese while the protection list guards the wrong words — so the LLM can cut subjects and break sentences.
+Moving the judgment out of a remote LLM removed the old Portuguese-only limitation: there's no PT-BR prompt to calibrate anymore.
 
-**If your audio isn't Portuguese, use the default mode.** It's the bulk of the value, it's free, and it's language-agnostic. English support for `--fillers` is on the list.
+Two Portuguese-specific bits remain, both small:
+
+- The transcription request still sends `"language": "pt"`
+- The protected-word list holds Portuguese vocatives and pronouns, so other languages aren't guarded against losing a subject
+
+Non-Portuguese `--fillers` is usable but unpolished until those are parameterized.
 
 ## Known limits
 
-- Filler judgment is **PT-BR only** — the prompt is written and calibrated in Brazilian Portuguese
-- Whisper hallucinates "Obrigado" over silent stretches in PT. Since those cuts land on silence, which `--edit` would remove anyway, they're harmless
+- Transcription is still pinned to `language: pt`; other languages need that made configurable
+- ASR models hallucinate "Obrigado" over silent stretches in PT. Since those land on silence, which `--edit` removes anyway, they're harmless
+- Duplicate detection needs a real pause before the restart. A speaker who redoes a line without stopping won't be caught
 - `--video-codec copy` / `--audio-codec copy` don't exist in `auto-editor` 29.x (they raise `Unknown encoder: copy`)
 - Running two `auto-editor` processes in parallel without separate `--temp-dir`s corrupts the output
 - Each video needs ~2.3x its own size free on disk during processing

@@ -2,8 +2,8 @@
 auto-editor>=29.3,<30
 ffmpeg-normalize>=1.42
 
-# Only for --fillers mode (transcription + LLM judgment via OpenRouter)
-openai>=1.0
+# --fillers mode needs no extra package: transcription goes out over urllib
+# from the stdlib, and the judgment happens in the agent, not in a remote LLM.
 
 # Not on pip: ffmpeg and ffprobe must be on your PATH.
 #   Windows: winget install Gyan.FFmpeg

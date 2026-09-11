@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
 """
-remove-fillers.py — acha vicios de linguagem e gagueiras num video, com timestamp
+remove-fillers.py — transcreve com timestamp por palavra e acha candidatos a corte
 
 Script da skill /cut-silence (modo --fillers).
 
-O texto deste script fica em portugues de proposito: o modo --fillers so funciona
-em PT-BR, entao quem roda ele fala portugues. O resto do repositorio e em ingles.
+DIVISAO DE TRABALHO. Este script NAO julga o que e vicio de linguagem. Ele faz
+so o que precisa de API ou de heuristica deterministica:
 
-Transcreve com timestamp por palavra (OpenRouter /audio/transcriptions) e decide
-quais palavras sao parasitas: gagueira por heuristica, filler por julgamento de LLM.
-Na analise NAO corta nada: entrega as faixas para aprovacao. So o modo --aplicar
-mexe em video.
+  1. extrai audio e transcreve com timestamp por palavra
+  2. acha candidatos mecanicos: gagueira (palavra colada repetida) e duplicata
+     (take abandonada, o locutor refez o trecho do inicio)
+  3. escreve tudo num JSON
+
+Quem le esse JSON, corrige a transcricao, decide os vicios de linguagem e monta
+o relatorio e o agente (Claude Code), seguindo o passo a passo do SKILL.md. Julgar
+no agente sai mais barato, nao depende de acertar um prompt para um modelo remoto,
+funciona em qualquer idioma e deixa voce discordar de um corte na conversa em vez
+de editar JSON na mao.
+
+O texto deste script fica em portugues de proposito: o modo --fillers nasceu
+calibrado em PT-BR. O resto do repositorio e em ingles.
 
 Uso:
-  python remove-fillers.py <video.mp4> [--json <saida.json>]     # analisa, nao corta
-  python remove-fillers.py --aplicar <video.mp4> <fillers.json> <saida.mp4> [--margin 0.2s]
+  python remove-fillers.py <video.mp4> [--json <saida.json>] [--modelo <id>]
+  python remove-fillers.py --aplicar <video.mp4> <cortes.json> <saida.mp4> [--margin 0.2s]
   python remove-fillers.py --autoteste
 
-Saida: relatorio no terminal + JSON com {cortes: [[ini,fim], ...], cut_out: "..."}
-
-Idioma: o julgamento de filler e calibrado para portugues brasileiro.
-
 Requisitos:
-  pip install openai auto-editor ffmpeg-normalize
+  pip install auto-editor ffmpeg-normalize
   ffmpeg e ffprobe no PATH
   OPENROUTER_API_KEY: variavel de ambiente, ou num .env ao lado do script
                       (ou em qualquer pasta acima dele)
@@ -31,13 +36,13 @@ Este arquivo e autocontido de proposito: a skill precisa funcionar copiada
 sozinha para outra maquina, entao nao importa nada de fora da propria pasta.
 """
 
+import difflib
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
-import threading
 import unicodedata
 import sys
 from pathlib import Path
@@ -46,25 +51,51 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-STT_MODEL     = "openai/whisper-large-v3-turbo"   # unico barato que devolve word timestamps
-LLM_MODEL     = "meta-llama/llama-3.3-70b-instruct"
-OPENROUTER    = "https://openrouter.ai/api/v1"
+# Deepgram gera o tempo da palavra direto do modelo acustico, quadro a quadro.
+# O Whisper deriva por DTW sobre cross-attention, que varia 100-400ms para o
+# mesmo audio — erro suficiente para o corte comer o ataque da palavra vizinha.
+STT_MODEL  = "deepgram/nova-3"
+OPENROUTER = "https://openrouter.ai/api/v1"
+
+# $ por minuto de audio, para estimar antes de gastar. Fonte: tabela publica do
+# OpenRouter. Atualize junto se trocar de modelo; valor ausente vira "?" no aviso.
+PRECO_MIN = {
+    "deepgram/nova-3":                  0.0043,
+    "microsoft/mai-transcribe-2":       0.001667,   # $0.10/hora
+    "openai/whisper-large-v3-turbo":    0.00018,    # $0.000003/seg
+    "openai/whisper-large-v3":          0.00048,    # $0.000008/seg
+    "nvidia/parakeet-tdt-0.6b-v3":      0.0015,
+    "openai/whisper-1":                 0.006,
+}
+
 MAX_MB        = 15          # base64 incha ~33%, entao 15MB cru ~ 20MB no request
 CHUNK_MINUTES = 18
-PALAVRAS_LOTE = 300         # palavras por chamada de LLM
-LLM_TIMEOUT   = 240
-LLM_ATTEMPTS  = 3
 
-# guardrails: se o LLM passar disso, ele entendeu errado a tarefa
-TETO_CORTE_PCT   = 0.15     # nunca remover mais de 15% das palavras
+# guardrails locais
 MAX_SEQUENCIA    = 6        # nunca remover mais de 6 palavras seguidas
 GAP_GAGUEIRA     = 0.6      # repeticao dentro desse intervalo = gagueira, nao enfase
 
-# Palavras que o LLM NAO pode remover, por mais convencido que esteja.
-# Vocativo: quem grava uma aula fala com a audiencia o tempo todo ("era isso, pessoal").
-# Pronome: tirar o sujeito quebra a frase ("o que ele corrigiu" -> "o que corrigiu"),
-# erro real observado em teste.
-# Vale so para o palpite do LLM: em gagueira a palavra sobrevive numa das repeticoes.
+# ── duplicata (recomeco de take) ──────────────────────────────────────────────
+# Gagueira e palavra colada repetida ("hoje hoje eu vou"). Duplicata e outra
+# coisa: o locutor percebe que errou, para, e refaz o trecho inteiro do comeco
+# ("Fala pessoal! ... Olá pessoal! Anderson aqui"). O corte certo vai do inicio
+# da take ruim ate o inicio da take boa.
+#
+# A busca abaixo e PERMISSIVA de proposito (recall): "fala pessoal" e "ola
+# pessoal" so coincidem numa palavra, entao um limiar apertado perderia justo o
+# caso que importa. A precisao vem depois, do agente confirmando candidato a
+# candidato com o texto na frente.
+JANELA_DUPLICATA   = 90.0   # ate onde olhar para tras, em segundos
+MIN_PALAVRAS_DUP   = 2      # tamanho da sonda comparada
+LIMIAR_DUPLICATA   = 0.72   # similaridade de caractere (SequenceMatcher)
+MAX_DUPLICATA_S    = 45.0   # take abandonada maior que isso nao e recomeco
+PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
+
+# Palavras que nao podem sair por palpite de vicio, por mais convencido que o
+# juiz esteja. Vocativo: quem grava uma aula fala com a audiencia o tempo todo
+# ("era isso, pessoal"). Pronome: tirar o sujeito quebra a frase ("o que ele
+# corrigiu" -> "o que corrigiu"), erro real observado em teste.
+# Gagueira e duplicata sao isentas: a palavra sobrevive na outra ocorrencia.
 PROTEGIDO = {
     "pessoal", "galera", "cara", "gente", "vocês", "voces", "você", "voce",
     "eu", "ele", "ela", "eles", "elas", "nós", "nos",
@@ -98,11 +129,7 @@ def _chave_no_env(env: Path):
 
 
 def carregar_env():
-    """Procura a chave no ambiente; se nao achar, varre .env subindo as pastas.
-
-    Assim funciona tanto com um .env na raiz de um projeto quanto na maquina de
-    alguem que so largou um .env do lado do script.
-    """
+    """Procura a chave no ambiente; se nao achar, varre .env subindo as pastas."""
     if os.environ.get("OPENROUTER_API_KEY"):
         return
     partidas = [Path(__file__).resolve().parent, Path.cwd()]
@@ -147,35 +174,17 @@ def extract_chunk(origem: Path, destino: Path, inicio: float, duracao: float):
                    check=True, capture_output=True)
 
 
-def _llm_once(client, prompt: str):
-    """Timeout de leitura nao dispara se o provider goteja bytes sem terminar;
-    thread daemon + join(timeout) abandona a chamada e nao trava a saida."""
-    resultado = {}
-
-    def chamar():
-        try:
-            resp = client.chat.completions.create(
-                model=LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=8192,
-            )
-            resultado["texto"] = resp.choices[0].message.content.strip()
-        except Exception as e:                      # noqa: BLE001
-            resultado["erro"] = e
-
-    t = threading.Thread(target=chamar, daemon=True)
-    t.start()
-    t.join(timeout=LLM_TIMEOUT)
-
-    if t.is_alive():
-        return None, f"timeout ({LLM_TIMEOUT}s)"
-    if "erro" in resultado:
-        return None, str(resultado["erro"])
-    return resultado.get("texto"), None
+def estimar_custo(duracao_s: float, modelo: str = STT_MODEL):
+    """$ estimado da transcricao. None se o modelo nao esta na tabela."""
+    preco = PRECO_MIN.get(modelo)
+    return None if preco is None else (duracao_s / 60.0) * preco
 
 
-# ── deteccao de gagueira (heuristica pura, sem LLM) ───────────────────────────
+def _fmt_custo(v) -> str:
+    return "?" if v is None else (f"${v:.4f}" if v < 0.01 else f"${v:.2f}")
+
+
+# ── deteccao de gagueira (heuristica pura) ───────────────────────────────────
 
 def achar_gagueiras(words: list) -> list:
     """Palavra repetida imediatamente e colada = gagueira. Devolve indices a remover.
@@ -199,6 +208,67 @@ def achar_gagueiras(words: list) -> list:
     return remover
 
 
+# ── deteccao de duplicata / recomeco de take ─────────────────────────────────
+
+def _texto(words: list, ini: int, fim: int) -> str:
+    """Texto normalizado e colado de words[ini:fim], para comparar."""
+    return "".join(_norm(w["word"]) for w in words[ini:fim])
+
+
+def achar_duplicatas(words: list,
+                     janela_s: float = JANELA_DUPLICATA,
+                     minimo: int = MIN_PALAVRAS_DUP,
+                     limiar: float = LIMIAR_DUPLICATA,
+                     max_span_s: float = MAX_DUPLICATA_S,
+                     pausa_min: float = PAUSA_RECOMECO) -> list:
+    """Acha take abandonada: o locutor comeca, erra, para, e refaz do inicio.
+
+    Parte das PAUSAS, nao do texto. Quem recomeca para antes de recomecar, entao
+    so palavra precedida de pausa e candidata a inicio de take nova. Para cada
+    uma, olha para tras procurando o comeco parecido que ela esta refazendo.
+
+    Buscar pelo texto primeiro nao funciona: em "fala pessoal ... ola pessoal"
+    as duas versoes so compartilham UMA palavra, e qualquer sonda maior afunda a
+    similaridade. Ancorar na pausa deixa a sonda ser curta sem encher de falso
+    positivo, porque so os pontos de recomeco sao testados.
+
+    Achando o par (i, j), a take ruim e words[i:j] inteira. Fica a ultima versao,
+    que e a corrigida — o mesmo corte que um editor humano faria.
+
+    Devolve [{ini, fim, eco, score, dur_s}, ...] com `fim` inclusivo.
+    Candidatos, nao veredito: quem confirma e o agente, lendo o texto.
+    """
+    n = len(words)
+    achados = []
+    ultimo_fim = -1
+    for j in range(1, n - minimo + 1):
+        if j <= ultimo_fim:                         # ja dentro de um corte achado
+            continue
+        if words[j]["start"] - words[j - 1]["end"] < pausa_min:
+            continue                                # sem pausa, nao e recomeco
+        sonda = _texto(words, j, j + minimo)
+        if len(sonda) < 6:
+            continue
+        melhor = None
+        for i in range(j - minimo, -1, -1):
+            if words[j]["start"] - words[i]["start"] > janela_s:
+                break                               # saiu da janela, para de olhar
+            alvo = _texto(words, i, i + minimo)
+            if not alvo:
+                continue
+            r = difflib.SequenceMatcher(None, sonda, alvo).ratio()
+            if r >= limiar and (melhor is None or r > melhor[1]):
+                melhor = (i, r)
+        if melhor:
+            i, r = melhor
+            dur = words[j]["start"] - words[i]["start"]
+            if dur <= max_span_s:
+                achados.append({"ini": i, "fim": j - 1, "eco": j,
+                                "score": round(r, 2), "dur_s": round(dur, 2)})
+                ultimo_fim = j
+    return achados
+
+
 # ── juncao de indices em faixas de tempo ──────────────────────────────────────
 
 def indices_para_faixas(words: list, indices: list) -> list:
@@ -217,25 +287,27 @@ def indices_para_faixas(words: list, indices: list) -> list:
     return faixas
 
 
-def validar(words: list, indices: list, gagueiras: set = frozenset()) -> tuple:
+def validar(words: list, indices: list, gagueiras: set = frozenset(),
+            duplicatas: set = frozenset()) -> tuple:
     """Devolve (indices_limpos, avisos). Descarta o que viola guardrail.
 
-    `gagueiras` sao indices vindos da heuristica, isentos da lista PROTEGIDO:
-    numa repeticao a palavra sobrevive numa das ocorrencias, entao remover as
-    outras nao apaga sentido nenhum.
+    `gagueiras` e `duplicatas` sao isentas de PROTEGIDO, e duplicata tambem de
+    MAX_SEQUENCIA: um recomeco e longo por definicao, e cada palavra dele
+    reaparece na take boa logo em seguida. O limite de 6 existe para conter
+    palpite de vicio, onde bloco longo e sinal de julgamento errado.
     """
     avisos = []
     n = len(words)
     limpos = sorted({i for i in indices if isinstance(i, int) and 0 <= i < n})
+    isentos = set(duplicatas)
 
     descartados = len(set(indices)) - len(limpos)
     if descartados > 0:
         avisos.append(f"{descartados} indice(s) fora da faixa 0..{n-1}, descartados")
 
-    # nunca remover sequencia longa demais
     fora = []
-    seq, ini = [], None
-    for i in limpos + [None]:
+    seq = []
+    for i in [x for x in limpos if x not in isentos] + [None]:
         if seq and (i is None or i != seq[-1] + 1):
             if len(seq) > MAX_SEQUENCIA:
                 fora.extend(seq)
@@ -246,12 +318,12 @@ def validar(words: list, indices: list, gagueiras: set = frozenset()) -> tuple:
         avisos.append(f"{len(fora)} palavra(s) em bloco maior que {MAX_SEQUENCIA} seguidas, descartadas")
         limpos = [i for i in limpos if i not in set(fora)]
 
-    # nunca deixar o LLM cortar vocativo nem pronome (gagueira e isenta)
     prot = [i for i in limpos
-            if i not in gagueiras and _norm(words[i]["word"]) in PROTEGIDO]
+            if i not in gagueiras and i not in isentos
+            and _norm(words[i]["word"]) in PROTEGIDO]
     if prot:
         amostra = ", ".join(sorted({words[i]["word"].strip() for i in prot})[:5])
-        avisos.append(f"{len(prot)} palavra(s) protegida(s) recusada(s) ao LLM ({amostra})")
+        avisos.append(f"{len(prot)} palavra(s) protegida(s) recusada(s) ({amostra})")
         limpos = [i for i in limpos if i not in set(prot)]
 
     return limpos, avisos
@@ -259,10 +331,9 @@ def validar(words: list, indices: list, gagueiras: set = frozenset()) -> tuple:
 
 # ── transcricao via OpenRouter ────────────────────────────────────────────────
 
-def transcrever(video: Path) -> list:
+def transcrever(video: Path, modelo: str = STT_MODEL) -> list:
     import base64
     import urllib.request
-    import urllib.error
 
     carregar_env()
     key = os.environ.get("OPENROUTER_API_KEY")
@@ -282,13 +353,18 @@ def transcrever(video: Path) -> list:
 
     tmp = Path(tempfile.gettempdir()) / "remove-fillers"
     tmp.mkdir(parents=True, exist_ok=True)
-    audio = tmp / f"{slugify(video.stem)}_vicios.mp3"
-    print(f"🎵 extraindo audio...", flush=True)
+    audio = tmp / f"{slugify(video.stem)}_fillers.mp3"
+    print("🎵 extraindo audio...", flush=True)
     extract_audio(video, audio)
+
+    total = get_duration(audio)
+    custo = estimar_custo(total, modelo)
+    print(f"💰 {total/60:.1f} min de audio · {modelo} · "
+          f"custo estimado {_fmt_custo(custo)}", flush=True)
 
     def _post(b64: str) -> dict:
         payload = {
-            "model": STT_MODEL,
+            "model": modelo,
             "input_audio": {"data": b64, "format": "mp3"},
             "language": "pt",
             "response_format": "verbose_json",
@@ -306,15 +382,14 @@ def transcrever(video: Path) -> list:
     mb = audio.stat().st_size / 1_048_576
     words = []
     if mb <= MAX_MB:
-        print(f"🎧 transcrevendo ({mb:.1f} MB, {STT_MODEL})...", flush=True)
+        print(f"🎧 transcrevendo ({mb:.1f} MB)...", flush=True)
         words = _post(base64.b64encode(audio.read_bytes()).decode()).get("words") or []
     else:
-        total = get_duration(audio)
         passo = CHUNK_MINUTES * 60
         n = -(-int(total) // int(passo))
         print(f"🎧 transcrevendo em {n} partes ({mb:.1f} MB)...", flush=True)
         for i in range(n):
-            parte = tmp / f"vicios_chunk_{i}.mp3"
+            parte = tmp / f"fillers_chunk_{i}.mp3"
             ini = i * passo
             extract_chunk(audio, parte, ini, min(passo, total - ini))
             print(f"   parte {i+1}/{n}...", flush=True)
@@ -326,68 +401,7 @@ def transcrever(video: Path) -> list:
     return words
 
 
-# ── julgamento do LLM ─────────────────────────────────────────────────────────
-
-PROMPT = """\
-Voce recebe a transcricao de uma AULA GRAVADA em portugues brasileiro, com cada \
-palavra numerada. Sua tarefa e apontar SOMENTE as palavras que sao vicio de \
-linguagem puro: som parasita que pode sair sem mudar nada do sentido.
-
-REMOVA:
-- Bordao vazio: "né", "hum", "ahn", "é é é" hesitante
-- "tipo" quando significa "assim/mais ou menos" (nao quando significa categoria)
-- "tá" de confirmacao no fim de frase ("beleza, tá?")
-- Comeco de frase abandonado: a pessoa comeca, se corrige e recomeca
-- Palavra gaguejada repetida
-
-NUNCA REMOVA:
-- Vocativo: "pessoal", "galera", "gente", "cara" quando ele fala COM a audiencia
-- "então", "aí", "olha", "bom", "agora" quando ligam raciocinio (quase sempre ligam)
-- Qualquer palavra que carregue sentido: verbo, substantivo, nome de ferramenta
-- Palavra que, tirada, deixa a frase quebrada ou ambigua
-
-Na duvida, NAO remova. Errar deixando um "né" e barato; errar cortando uma \
-palavra de conteudo estraga a aula.
-
-Devolva SOMENTE um JSON, sem comentario, no formato:
-{{"cortar": [12, 45, 46]}}
-
-PALAVRAS:
-{trecho}"""
-
-
-def julgar(words: list) -> list:
-    from openai import OpenAI
-
-    carregar_env()
-    client = OpenAI(base_url=OPENROUTER, api_key=os.environ["OPENROUTER_API_KEY"],
-                    timeout=LLM_TIMEOUT, max_retries=0)
-
-    achados = []
-    for ini in range(0, len(words), PALAVRAS_LOTE):
-        fim = min(ini + PALAVRAS_LOTE, len(words))
-        trecho = " ".join(f"[{i}]{words[i]['word'].strip()}" for i in range(ini, fim))
-        print(f"   🤔 julgando palavras {ini}-{fim}...", flush=True)
-
-        for tentativa in range(LLM_ATTEMPTS):
-            texto, err = _llm_once(client, PROMPT.format(trecho=trecho))
-            if texto:
-                m = re.search(r"\{.*\}", texto, re.S)
-                if m:
-                    try:
-                        lista = json.loads(m.group(0)).get("cortar", [])
-                        achados.extend(int(x) for x in lista if isinstance(x, (int, float)))
-                        break
-                    except (json.JSONDecodeError, ValueError, TypeError):
-                        err = "JSON invalido"
-                else:
-                    err = "sem JSON na resposta"
-            resto = "" if tentativa == LLM_ATTEMPTS - 1 else " — tentando de novo"
-            print(f"   ⚠️  {err}{resto}", flush=True)
-    return achados
-
-
-# ── relatorio ─────────────────────────────────────────────────────────────────
+# ── contexto para o relatorio ────────────────────────────────────────────────
 
 def contexto(words: list, i: int, janela: int = 4) -> str:
     ini, fim = max(0, i - janela), min(len(words), i + janela + 1)
@@ -395,33 +409,6 @@ def contexto(words: list, i: int, janela: int = 4) -> str:
         (f"[{w['word'].strip()}]" if k == i else w["word"].strip())
         for k, w in enumerate(words[ini:fim], start=ini)
     )
-
-
-def relatorio(words: list, indices: list, gagueiras: set, avisos: list) -> dict:
-    faixas = indices_para_faixas(words, indices)
-    total_s = sum(f - i for i, f in faixas)
-    dur = words[-1]["end"] if words else 0
-
-    print(f"\n{'='*70}")
-    print(f"palavras transcritas: {len(words)}   duracao falada: {dur/60:.1f} min")
-    print(f"cortes propostos: {len(faixas)}   tempo removido: {total_s:.1f}s "
-          f"({total_s/dur*100:.1f}% da fala)" if dur else "")
-    for a in avisos:
-        print(f"⚠️  {a}")
-    print(f"{'='*70}\n")
-
-    for i in sorted(indices):
-        tag = "gagueira" if i in gagueiras else "filler"
-        print(f"  {words[i]['start']:7.2f}s  {tag:9} → {contexto(words, i)}")
-
-    return {
-        "modelo_stt": STT_MODEL,
-        "palavras": len(words),
-        "duracao_s": round(dur, 2),
-        "removido_s": round(total_s, 2),
-        "cortes": [[round(a, 2), round(b, 2)] for a, b in faixas],
-        "cut_out": " ".join(f"{a:.2f}sec,{b:.2f}sec" for a, b in faixas),
-    }
 
 
 # ── autoteste ─────────────────────────────────────────────────────────────────
@@ -455,7 +442,12 @@ def autoteste():
     limpos, avisos = validar(muitos, list(range(0, MAX_SEQUENCIA + 2)))
     assert limpos == [], (limpos, avisos)
 
-    # guardrail: vocativo protegido mesmo se o LLM pedir
+    # ...mas duplicata e isenta: recomeco de take e longo por natureza
+    dup = set(range(0, MAX_SEQUENCIA + 2))
+    limpos, _ = validar(muitos, list(dup), duplicatas=dup)
+    assert limpos == sorted(dup), limpos
+
+    # guardrail: vocativo protegido
     voc = [w("obrigado", 0, 1), w("pessoal", 1, 2)]
     limpos, avisos = validar(voc, [1])
     assert limpos == [] and any("protegida" in a for a in avisos), (limpos, avisos)
@@ -464,14 +456,48 @@ def autoteste():
     pron = [w("que", 0, 1), w("ele", 1, 2), w("corrigiu", 2, 3)]
     assert validar(pron, [1])[0] == []
 
-    # ...mas gagueira e isenta: 'eu eu eu acho' precisa perder as repeticoes,
-    # senao a protecao de pronome mataria o recurso de gagueira
+    # ...mas gagueira e isenta, senao a protecao de pronome mataria o recurso
     gag = [w("eu", 0.0, 0.2), w("eu", 0.25, 0.45), w("eu", 0.5, 0.7), w("acho", 0.75, 1.1)]
     idx = achar_gagueiras(gag)
     assert validar(gag, idx, gagueiras=set(idx))[0] == [0, 1], validar(gag, idx, set(idx))
 
-    # .env: le a chave da skill e ignora o resto. A skill roda dentro do projeto
-    # dos outros, entao credencial alheia nao pode entrar junto.
+    # duplicata: take abandonada e refeita. O caso real que motivou o recurso —
+    # "Fala pessoal" e "Ola pessoal" so coincidem numa palavra. A pausa de 0.8s
+    # antes de "ola" e o que marca o recomeco, como na fala de verdade.
+    dup_words = []
+    for k, t in enumerate(["fala", "pessoal", "hoje", "eu", "vou", "falar"]):
+        dup_words.append(w(t, k * 0.5, k * 0.5 + 0.4))
+    base = 5 * 0.5 + 0.4 + 0.8
+    for k, t in enumerate(["ola", "pessoal", "anderson", "aqui"]):
+        dup_words.append(w(t, base + k * 0.5, base + k * 0.5 + 0.4))
+    achados = achar_duplicatas(dup_words)
+    assert achados, "nao achou o recomeco de take"
+    # a take ruim inteira sai (0..5) e a boa comeca em "ola" (6)
+    assert achados[0]["ini"] == 0 and achados[0]["eco"] == 6, achados[0]
+
+    # sem pausa nenhuma nao ha recomeco: fala corrida e fala corrida. Este teste
+    # trava a ancora de pausa — tirando ela, a busca por texto sozinha volta a
+    # inventar fronteira no meio da frase.
+    plano = [w(t, k * 0.5, k * 0.5 + 0.4) for k, t in enumerate(
+        ["fala", "pessoal", "hoje", "eu", "vou", "falar", "ola", "pessoal", "anderson", "aqui"])]
+    assert achar_duplicatas(plano) == [], achar_duplicatas(plano)
+
+    # texto sem repeticao nao gera candidato
+    limpo = ["hoje", "vamos", "falar", "sobre", "normalizacao", "de", "audio"]
+    sem = [w(t, i * 0.5, i * 0.5 + 0.4) for i, t in enumerate(limpo)]
+    assert achar_duplicatas(sem) == [], achar_duplicatas(sem)
+
+    # eco longe demais nao conta: recapitular no fim da aula nao e recomeco
+    longe = [w("fala", 0, 0.4), w("pessoal", 0.5, 0.9), w("beleza", 1.0, 1.4),
+             w("fala", 500, 500.4), w("pessoal", 500.5, 500.9), w("beleza", 501, 501.4)]
+    assert achar_duplicatas(longe) == []
+
+    # custo: tabela bate e modelo desconhecido nao quebra
+    assert abs(estimar_custo(600, "deepgram/nova-3") - 0.043) < 1e-6
+    assert estimar_custo(600, "modelo/inexistente") is None
+    assert _fmt_custo(None) == "?"
+
+    # .env: le a chave da skill e ignora o resto
     env = Path(tempfile.mkdtemp(prefix="remove-fillers-teste-")) / ".env"
     env.write_text("# comentario\nSENHA_DO_BANCO=nao-me-leia\n"
                    "OPENROUTER_API_KEY=sk-teste\n", encoding="utf-8")
@@ -480,8 +506,7 @@ def autoteste():
     env.write_text('OPENROUTER_API_KEY="sk-com-aspas"\n', encoding="utf-8")
     assert _chave_no_env(env) == "sk-com-aspas"
 
-    # chave vazia (o proprio .env.example) nao conta como achada, senao a busca
-    # para num arquivo de exemplo e nunca chega no .env de verdade
+    # chave vazia (o proprio .env.example) nao conta como achada
     env.write_text("OPENROUTER_API_KEY=\n", encoding="utf-8")
     assert _chave_no_env(env) is None
 
@@ -492,18 +517,15 @@ def autoteste():
     print("✅ autoteste passou")
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
+# ── aplicar ───────────────────────────────────────────────────────────────────
 
 def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
-    """Corta silencio + vicios num passe so e normaliza o audio.
+    """Corta silencio + cortes aprovados num passe so e normaliza o audio.
 
     O --cut-out do auto-editor 29.x aceita UMA faixa por ocorrencia, apesar do
     help anunciar `[START,STOP ...]`. Passar varias de uma vez faz ele tratar a
     ultima como arquivo de entrada ("Could not open input file: 432.42sec,...").
     Por isso a flag e repetida uma vez por faixa.
-
-    `margin` segue a mesma regra do SKILL.md: 0.2s para aula/tutorial, 0.0s para
-    anuncio e corte curto, onde cada respiro preservado derruba o ritmo.
     """
     info = json.loads(dados.read_text(encoding="utf-8"))
     faixas = []
@@ -518,7 +540,7 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     cache = tmp_dir / f"cache_{slugify(video.stem)}"
     corte = tmp_dir / f"{slugify(video.stem)}_corte.mp4"
 
-    print(f"✂️  cortando silencio + {len(faixas)//2} vicio(s) (margin {margin})...", flush=True)
+    print(f"✂️  cortando silencio + {len(faixas)//2} trecho(s) (margin {margin})...", flush=True)
     r = subprocess.run(
         ["auto-editor", str(video), "--edit", "audio:threshold=4%", "--margin", margin,
          *faixas, "--temp-dir", str(cache), "-o", str(corte), "--no-open"],
@@ -539,8 +561,6 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
         print(f"ERRO na normalizacao:\n{(r.stderr or r.stdout)[-800:]}")
         sys.exit(1)
     corte.unlink(missing_ok=True)
-    # nao deixar um _tmp vazio na pasta de saida do usuario; se sobrou coisa
-    # de outra execucao rodando junto, o rmdir falha e a pasta fica, que e o certo
     try:
         tmp_dir.rmdir()
     except OSError:
@@ -551,6 +571,8 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
                          capture_output=True, text=True).stdout.strip()
     print(f"\n✅ {saida}\n   duracao final: {float(dur)/60:.1f} min")
 
+
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     args = sys.argv[1:]
@@ -567,10 +589,19 @@ def main():
         margin = args[i + 1]
         del args[i:i + 2]
 
+    modelo = STT_MODEL
+    if "--modelo" in args:
+        i = args.index("--modelo")
+        if i + 1 >= len(args):
+            print("Uso: --modelo <id>, por exemplo --modelo microsoft/mai-transcribe-2")
+            sys.exit(1)
+        modelo = args[i + 1]
+        del args[i:i + 2]
+
     if "--aplicar" in args:
         resto = [a for a in args if a != "--aplicar"]
         if len(resto) != 3:
-            print("Uso: --aplicar <video.mp4> <fillers.json> <saida.mp4> [--margin 0.2s]")
+            print("Uso: --aplicar <video.mp4> <cortes.json> <saida.mp4> [--margin 0.2s]")
             sys.exit(1)
         video, dados, saida = (Path(x) for x in resto)
         for p in (video, dados):
@@ -595,34 +626,49 @@ def main():
     # falta de chave e erro de configuracao do usuario, nao bug: mostra a
     # mensagem limpa em vez de um traceback, que assusta quem nao programa
     try:
-        words = transcrever(video)
+        words = transcrever(video, modelo)
     except RuntimeError as e:
         print(f"\n❌ {e}")
         sys.exit(1)
 
     if not words:
-        print("Erro: transcricao voltou sem timestamps por palavra.")
+        print(f"\n❌ O modelo {modelo} nao devolveu timestamp por palavra.\n\n"
+              "Nem todo modelo do OpenRouter suporta `timestamp_granularities:\n"
+              "[\"word\"]` — alguns ignoram e outros devolvem 400. Tente outro:\n\n"
+              "  --modelo microsoft/mai-transcribe-2      ($0.10/hora, word ok)\n"
+              "  --modelo openai/whisper-large-v3-turbo   (barato, timestamp aproximado)\n")
         sys.exit(1)
 
-    gagueiras = set(achar_gagueiras(words))
-    print(f"🔁 gagueiras (heuristica): {len(gagueiras)}")
+    dur = words[-1]["end"]
+    gagueiras = achar_gagueiras(words)
+    duplicatas = achar_duplicatas(words)
 
-    print(f"🧠 julgando fillers com {LLM_MODEL}...")
-    do_llm = julgar(words)
-
-    limpos, avisos = validar(words, list(gagueiras) + do_llm, gagueiras=gagueiras)
-
-    pct = len(limpos) / len(words) if words else 0
-    if pct > TETO_CORTE_PCT:
-        print(f"\n❌ ABORTADO: o julgamento marcou {pct*100:.0f}% das palavras "
-              f"(teto e {TETO_CORTE_PCT*100:.0f}%). Isso nao e vicio de linguagem, "
-              f"e erro de interpretacao. Nada foi cortado.")
-        sys.exit(1)
-
-    dados = relatorio(words, limpos, gagueiras, avisos)
+    dados = {
+        "modelo_stt": modelo,
+        "custo_estimado_usd": round(estimar_custo(dur, modelo) or 0, 4),
+        "palavras": len(words),
+        "duracao_s": round(dur, 2),
+        "candidatos": {
+            "gagueiras": gagueiras,
+            "duplicatas": duplicatas,
+        },
+        "words": [{"i": i, "word": w["word"].strip(),
+                   "start": round(w["start"], 2), "end": round(w["end"], 2)}
+                  for i, w in enumerate(words)],
+    }
     saida.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print(f"\n{'='*72}")
+    print(f"  {len(words)} palavras · {dur/60:.1f} min de fala · {modelo}")
+    print(f"  custo da transcricao: {_fmt_custo(estimar_custo(dur, modelo))}")
+    print(f"{'='*72}")
+    print(f"  candidatos mecanicos encontrados:")
+    print(f"     {len(gagueiras):3} gagueira(s)")
+    print(f"     {len(duplicatas):3} duplicata(s) / recomeco(s) de take")
+    print(f"{'='*72}")
     print(f"\n💾 {saida}")
-    print(f"\nPara aplicar, o /cut-silence passa ao auto-editor:\n  --cut-out {dados['cut_out'][:120]}...")
+    print("\nVicio de linguagem NAO foi julgado aqui: quem le este JSON, corrige a")
+    print("transcricao e decide os cortes e o agente, seguindo o SKILL.md.")
 
 
 if __name__ == "__main__":

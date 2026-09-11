@@ -1,6 +1,6 @@
 ---
 name: cut-silence
-description: Cuts silence from ONE video with auto-editor and normalizes the audio to -16 LUFS. With the `--fillers` flag, also removes filler words and stutters using word-level transcription (Brazilian Portuguese only). Triggers "cut the silences", "remove the pauses from this video", "trim the dead air", "speed this video up by cutting pauses", "corta os silêncios", "tira as pausas do vídeo", "tira os tempos mortos", "tira os né/tá do vídeo", "corta as gagueiras". Do NOT use for creative editing (choosing takes, burned-in captions, color grading, overlays, cutting by content) — this skill only removes silence and parasitic sound. If the request is vague like "edit my video", ask what exactly before triggering.
+description: Cuts silence from ONE video with auto-editor and normalizes the audio to -16 LUFS. With the `--fillers` flag, also removes filler words, stutters and duplicate takes (the speaker restarting a segment after an error), using word-level transcription plus agent judgment. Triggers "cut the silences", "remove the pauses from this video", "trim the dead air", "speed this video up by cutting pauses", "corta os silêncios", "tira as pausas do vídeo", "tira os tempos mortos", "tira os né/tá do vídeo", "corta as gagueiras". Do NOT use for creative editing (choosing takes, burned-in captions, color grading, overlays, cutting by content) — this skill only removes silence and parasitic sound. If the request is vague like "edit my video", ask what exactly before triggering.
 argument-hint: <video-path> [--fillers]
 license: MIT
 ---
@@ -14,7 +14,7 @@ Automatically cuts pauses and silence from talking-head videos using `auto-edito
 - **Audio:** linear EBU R128 loudness normalization (no dynamic compression, no effects) — raises quiet audio and lowers loud audio to the same perceived level, without ever clipping
 - **Output:** writes the edited video to `<OUTPUT>/` (see convention below), never overwrites the original
 
-**Optional `--fillers` mode:** also removes filler words ("né", "tá", parasitic "tipo") and stutters. Costs a few cents of API (OpenRouter) because it has to transcribe, and it is **Brazilian Portuguese only** — the judgment prompt is written in PT-BR and calibrated on it. **Never runs unless the user asks.** See "Step 5b".
+**Optional `--fillers` mode:** also removes filler words ("né", "tá", parasitic "tipo"), stutters, and duplicate takes — where the speaker errs, stops, and redoes a segment from the top. Costs a few cents of API (OpenRouter) because it has to transcribe. **Never runs unless the user asks.** See "Step 5b".
 
 ---
 
@@ -76,7 +76,7 @@ If `ffmpeg` is missing, instruct per platform:
 | macOS | `brew install ffmpeg` |
 | Linux (Debian/Ubuntu) | `sudo apt install ffmpeg` |
 
-**Only for `--fillers` mode** (skip if the user didn't ask): needs `pip install openai` and an OpenRouter key in `OPENROUTER_API_KEY`, either as an environment variable or in a `.env`. The script looks for the key in the environment first and, failing that, walks up the folder tree looking for a `.env` — reading **only** `OPENROUTER_API_KEY`, never the user's other variables. Without a key it stops with an explanatory message, it doesn't crash.
+**Only for `--fillers` mode** (skip if the user didn't ask): needs an OpenRouter key in `OPENROUTER_API_KEY`, either as an environment variable or in a `.env`. No extra Python package — the transcription request goes out over the stdlib. The script looks for the key in the environment first and, failing that, walks up the folder tree looking for a `.env` — reading **only** `OPENROUTER_API_KEY`, never the user's other variables. Without a key it stops with an explanatory message, it doesn't crash.
 
 Do not proceed without the dependencies.
 
@@ -145,11 +145,11 @@ After running, delete the cache folder: `rm -rf "<OUTPUT>/_tmp/cache_<base-name>
 
 **Skip this whole step if the user didn't ask.** It costs API money and takes time.
 
-**This mode is Brazilian Portuguese only.** The transcription is pinned to `language: pt` and the judgment prompt is written in PT-BR. On English audio it produces garbage — see "Language support" below.
+**The script does not judge fillers. You do.** It only transcribes and finds the mechanical candidates; deciding what is parasitic speech is your job, following the steps below. That is cheaper than a remote LLM, works in any language, and lets the user argue with a cut in conversation instead of editing JSON by hand.
 
 This step replaces steps 5 and 6, because the filler cut goes into the *same* auto-editor call as the silence cut. One encode, no quality loss from encoding twice.
 
-**1) Analyze** (cuts nothing, just finds the fillers):
+#### 1) Transcribe and collect candidates
 
 ```bash
 python "<SKILL-FOLDER>/scripts/remove-fillers.py" "<ORIGINAL-video-path>" --json "<output>.json"
@@ -157,31 +157,72 @@ python "<SKILL-FOLDER>/scripts/remove-fillers.py" "<ORIGINAL-video-path>" --json
 
 Use the **original** video, never the already-cut one: the timestamps have to line up with the timeline auto-editor will receive.
 
-The script transcribes with word-level timestamps (`openai/whisper-large-v3-turbo` via OpenRouter), detects stutters heuristically, submits the rest to an LLM for judgment, and prints each cut with its surrounding sentence.
+The script prints the estimated cost **before** spending it, transcribes with `deepgram/nova-3` via OpenRouter, and writes a JSON with every word (`i`, `word`, `start`, `end`) plus two candidate lists: `gagueiras` and `duplicatas`.
 
-**2) Show the list to the user and WAIT for approval.** Don't apply it on your own. Show the report exactly as the script printed it (timestamp, type, sentence with the word in brackets) and ask whether you can apply it. If they want some removed from the list, edit the `cortes` array in the JSON before continuing.
+If the model returns no word timestamps, the script says so and suggests `--modelo microsoft/mai-transcribe-2`. Pass it along and re-run.
 
-**3) Apply.** After approval, the script itself cuts and normalizes:
+#### 2) Read the JSON and fix the transcript
+
+Before judging anything, correct what the ASR misheard — tool names, jargon, proper nouns (`Cloud Code` → `Claude Code`, `N8N` → `n8n`). Do this in your head, for your own judgment; don't rewrite the JSON. A wrong word leads to a wrong cut decision.
+
+Whisper-family models hallucinate "Obrigado" over silent stretches in PT. If you see repeated thank-yous nobody said, ignore them — they land on silence that `--edit` removes anyway.
+
+#### 3) Decide the cuts, in three categories
+
+- **Fillers** — parasitic sound that can leave without changing meaning: "né", "hum", "ahn", hesitant "é é é", "tipo" meaning "sort of" (not the category sense), confirmation "tá?" at the end of a sentence. **Never cut** vocatives the speaker aims at the audience (`pessoal`, `galera`, `gente`), connectives that carry reasoning (`então`, `aí`, `olha`, `bom`, `agora`), or any word whose removal breaks the sentence. When in doubt, keep it — a stray "né" is cheap; a missing subject ruins the take.
+- **Stutters** — the `gagueiras` list. Already precise; just sanity-check a few.
+- **Duplicates** — the `duplicatas` list. **Confirm each one by reading the text**, because these cuts are long. A genuine restart is the speaker abandoning a take and redoing it. A deliberate recap, a returning topic, or a catchphrase the speaker always uses is *not* a duplicate and must stay.
+
+#### 4) Show the grouped report and WAIT for approval
+
+Never apply on your own. Print it in this shape:
+
+```
+72 palavras · 1.2 min de fala · deepgram/nova-3 · transcrição $0.005
+
+CORTES PROPOSTOS: 14   (8.3s, 11.4% da fala)
+   9 vícios de linguagem   (2.1s)
+   3 gagueiras             (0.9s)
+   2 duplicatas            (5.3s)
+
+── VÍCIOS DE LINGUAGEM (9) ─────────────
+    12.40s  → e aí [né] a gente vai
+    ...
+── GAGUEIRAS (3) ──────────────────────
+    31.02s  → hoje [hoje] eu vou falar
+── DUPLICATAS (2) ─────────────────────
+    45.10s  (4.2s, similaridade 0.86)
+      SAI:  Fala pessoal hoje eu vou falar
+      FICA: Olá pessoal Anderson aqui
+```
+
+For duplicates, always print the **full text** of what leaves and what stays. The user cannot approve a 5-second cut from a timestamp alone.
+
+Then ask. If they disagree with any cut, drop it and re-print — don't make them edit JSON.
+
+#### 5) Write the approved cuts and apply
+
+Write a JSON with only `{"cortes": [[start, end], ...]}` — the approved ranges, in seconds — then:
 
 ```bash
-python "<SKILL-FOLDER>/scripts/remove-fillers.py" --aplicar "<ORIGINAL-video>" "<fillers>.json" "<output>.mp4"
+python "<SKILL-FOLDER>/scripts/remove-fillers.py" --aplicar "<ORIGINAL-video>" "<cuts>.json" "<output>.mp4"
 ```
 
 For ad creative, pass the margin along using the same rule as the step 5 table (the `--aplicar` default is `0.2s`):
 
 ```bash
-python "<SKILL-FOLDER>/scripts/remove-fillers.py" --aplicar "<video>" "<fillers>.json" "<output>.mp4" --margin 0.0s
+python "<SKILL-FOLDER>/scripts/remove-fillers.py" --aplicar "<video>" "<cuts>.json" "<output>.mp4" --margin 0.0s
 ```
 
 **Don't hand-build the `auto-editor` call for this.** In version 29.x, `--cut-out` accepts **one range per occurrence of the flag**, despite `--help` advertising `[START,STOP ...]`. Passing several together makes it treat the last one as the input file and die with `Could not open input file: 432.42sec,432.96sec`. The right way is to repeat the flag (`--cut-out A,B --cut-out C,D ...`), which is what the script does.
 
 Silence cut and filler cut come out in the same pass, and normalization rides along: one encode.
 
-**Guardrails the script already applies on its own** (no need to redo them, but know they exist):
-- Aborts if the judgment marks more than 15% of the words — that isn't filler, that's the LLM misunderstanding
-- Refuses blocks longer than 6 consecutive words
-- Protects vocatives (`pessoal`, `galera`, `gente`, `cara`) and pronouns (`eu`, `ele`, `você`): people recording talk to their audience constantly, and cutting the subject breaks the sentence ("o que ele corrigiu" becomes "o que corrigiu")
-- On stutters, keeps the **last** repetition, which is the one that connects to the sentence
+**Guardrails the script enforces mechanically** (you can't override them, and shouldn't try):
+- Refuses blocks longer than 6 consecutive words — except duplicates, which are long by nature
+- Protects vocatives and pronouns from filler judgment; stutters and duplicates are exempt, because the word survives in the other occurrence
+- On stutters, keeps the **last** repetition, the one that connects to the sentence
+- Duplicate detection is anchored on pauses: a word not preceded by a ≥0.35s pause can't start a new take
 
 **If the user says it came out choppy:** the problem is almost always the volume of cuts, not the splices. Run it again without `--fillers` and compare.
 
@@ -249,12 +290,17 @@ ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:no
 | Feature | Works in |
 |---|---|
 | Silence cut + normalization (default mode) | **Any language.** It's waveform analysis — it never looks at words |
-| Stutter removal (`--fillers`) | **Any language** in principle — the heuristic just spots adjacent repeated words |
-| Filler-word removal (`--fillers`) | **Brazilian Portuguese only** |
+| Stutter and duplicate detection | **Any language.** Both are mechanical: repeated tokens and pause-anchored echoes |
+| Filler judgment | **Any language** — you do the judging, and you are not tied to one |
 
-Three things pin `--fillers` to PT-BR: the transcription request hardcodes `"language": "pt"`, the judgment prompt is written in Portuguese, and the `PROTEGIDO` list protects Portuguese pronouns and vocatives. On English audio, Whisper is told to transcribe Portuguese and the protection list guards the wrong words — so the LLM can cut subjects and break sentences.
+Moving the judgment out of a remote LLM removed the old PT-BR limitation: there is no Portuguese prompt to calibrate anymore.
 
-If the user has non-Portuguese audio, run the default mode and say the `--fillers` mode doesn't cover their language yet.
+Two Portuguese-specific bits remain, and both are small:
+
+- The transcription request still sends `"language": "pt"`. For non-Portuguese audio, that has to change or the ASR is told the wrong language.
+- `PROTEGIDO` holds Portuguese vocatives and pronouns. For another language, the equivalent words aren't guarded — so be stricter yourself about not cutting subjects and vocatives.
+
+Until those are parameterized, treat non-Portuguese `--fillers` as usable but unpolished, and say so to the user.
 
 ---
 
@@ -288,6 +334,6 @@ If the user has non-Portuguese audio, run the default mode and say the `--filler
 | `--fillers`: `ABORTADO: marcou N% das palavras` | The LLM misunderstood the task. Run it again; if it repeats, the audio probably has noise/music confusing the transcription |
 | `--fillers`: `transcricao voltou sem timestamps por palavra` | The chosen model doesn't support `verbose_json`. Only `openai/whisper-large-v3`, `whisper-large-v3-turbo` and `whisper-1` do. `gpt-4o-transcribe` and `qwen3-asr` return 400 |
 | `--fillers`: several repeated "Obrigado" nobody said | A known Whisper hallucination in PT: it invents "Obrigado" over silent stretches. Not a script bug. Those cuts land on silence, which `--edit` would remove anyway, so they're harmless. Just don't count them as "real stutters" when reporting |
-| `--fillers` on non-Portuguese audio produces garbage | Expected — the mode is PT-BR only. See "Language support" |
+| `--fillers` on non-Portuguese audio transcribes badly | The request still sends `language: pt`. See "Language support" |
 | Accented path not found in background Bash (Windows) | The background shell mangles accents (`Módulo` → not found). Use PowerShell for those paths |
 | `Could not open input file: 432.42sec,432.96sec` | `--cut-out` takes one range per occurrence. Repeat the flag for each range, don't pass several together |
