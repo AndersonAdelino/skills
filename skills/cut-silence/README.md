@@ -254,6 +254,7 @@ Non-Portuguese `--fillers` is usable but unpolished until those are parameterize
 - Transcription is still pinned to `language: pt`; other languages need that made configurable
 - ASR models hallucinate "Obrigado" over silent stretches in PT. Since those land on silence, which `--edit` removes anyway, they're harmless
 - Duplicate detection needs a real pause before the restart. A speaker who redoes a line without stopping won't be caught
+- Duplicate detection is deliberately permissive and **will propose false positives**; the agent filters them by reading the text before anything reaches you. A restart longer than 15s is rejected outright — nobody rambles for half a minute, notices, and starts over
 - `--video-codec copy` / `--audio-codec copy` don't exist in `auto-editor` 29.x (they raise `Unknown encoder: copy`)
 - Running two `auto-editor` processes in parallel without separate `--temp-dir`s corrupts the output
 - Each video needs ~2.3x its own size free on disk during processing

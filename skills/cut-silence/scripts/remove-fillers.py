@@ -87,9 +87,16 @@ GAP_GAGUEIRA     = 0.6      # repeticao dentro desse intervalo = gagueira, nao e
 # candidato com o texto na frente.
 JANELA_DUPLICATA   = 90.0   # ate onde olhar para tras, em segundos
 MIN_PALAVRAS_DUP   = 2      # tamanho da sonda comparada
-LIMIAR_DUPLICATA   = 0.72   # similaridade de caractere (SequenceMatcher)
-MAX_DUPLICATA_S    = 45.0   # take abandonada maior que isso nao e recomeco
+MIN_CHARS_SONDA    = 6      # sonda curta casa por acaso; exigido nos DOIS lados
+LIMIAR_DUPLICATA   = 0.78   # similaridade de caractere (SequenceMatcher)
+MAX_DUPLICATA_S    = 15.0   # take abandonada maior que isso nao e recomeco
 PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
+
+# Os tres ultimos valores vieram de um falso positivo real, nao de teoria.
+# Num video de 1.1 min, "e cada" (8.96s) casou com "cada um" (45.48s) a 0.727,
+# so por compartilhar "cada", e propos cortar 36,5 SEGUNDOS de narracao boa.
+# Recomeco de take de verdade dura segundos e casa com folga: o caso que motivou
+# o recurso ("fala pessoal" -> "ola pessoal") da 0.857 em 2,5s.
 
 # Palavras que nao podem sair por palpite de vicio, por mais convencido que o
 # juiz esteja. Vocativo: quem grava uma aula fala com a audiencia o tempo todo
@@ -252,14 +259,16 @@ def achar_duplicatas(words: list,
         if words[j]["start"] - words[j - 1]["end"] < pausa_min:
             continue                                # sem pausa, nao e recomeco
         sonda = _texto(words, j, j + minimo)
-        if len(sonda) < 6:
+        if len(sonda) < MIN_CHARS_SONDA:
             continue
         melhor = None
         for i in range(j - minimo, -1, -1):
             if words[j]["start"] - words[i]["start"] > janela_s:
                 break                               # saiu da janela, para de olhar
+            # o lado de tras tambem precisa de corpo: foi um alvo de 5 chars
+            # ("ecada") que gerou o falso positivo de 36s no primeiro teste real
             alvo = _texto(words, i, i + minimo)
-            if not alvo:
+            if len(alvo) < MIN_CHARS_SONDA:
                 continue
             r = difflib.SequenceMatcher(None, sonda, alvo).ratio()
             if r >= limiar and (melhor is None or r > melhor[1]):
@@ -496,6 +505,15 @@ def autoteste():
     longe = [w("fala", 0, 0.4), w("pessoal", 0.5, 0.9), w("beleza", 1.0, 1.4),
              w("fala", 500, 500.4), w("pessoal", 500.5, 500.9), w("beleza", 501, 501.4)]
     assert achar_duplicatas(longe) == []
+
+    # REGRESSAO, falso positivo real (video de 1.1 min, primeiro teste com audio
+    # de verdade): "e cada" em 8.96s casou com "cada um" em 45.48s a 0.727, so
+    # por compartilhar "cada", e propos cortar 36,5s de narracao boa. Tres coisas
+    # matam isso — alvo curto demais, 36s nao e recomeco, e 0.727 < 0.78.
+    fp = [w("e", 8.96, 9.10), w("cada", 9.15, 9.50), w("vez", 9.55, 9.90),
+          w("que", 9.95, 10.20), w("voce", 10.25, 10.60),
+          w("cada", 45.48, 45.85), w("um", 45.90, 46.10), w("tem", 46.15, 46.45)]
+    assert achar_duplicatas(fp) == [], achar_duplicatas(fp)
 
     # custo: tabela bate e modelo desconhecido nao quebra
     assert abs(estimar_custo(600, "deepgram/nova-3") - 0.043) < 1e-6
