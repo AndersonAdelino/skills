@@ -117,16 +117,36 @@ If it doesn't exist, report:
 
 Example: `C:/Videos/lessons/tutorial.mp4` → `C:/Videos/lessons/edited/tutorial_edited.mp4`
 
-### 5. Run the silence cut
+### 5. Level the audio, THEN cut the silence
+
+**Normalize before cutting. This order is not optional.**
+
+`auto-editor`'s threshold is **absolute** — 4% of full scale, roughly -28 dB — not relative to the file's own peak. A quietly recorded video has its entire speech below that line, so the cut deletes the talking and keeps nothing.
+
+This is not hypothetical. A real batch hit it: a lesson recorded at `mean_volume -48.2 dB` had **0.8%** of its frames above the threshold, and a 163-second video came out at 2.7 seconds. After leveling first, 81.5% of frames cleared the same threshold and the cut was normal.
 
 ```bash
-auto-editor "<video-path>" \
+# 1. level the input so the fixed threshold means something
+ffmpeg-normalize "<video-path>" \
+  -o "<OUTPUT>/_tmp/pre_<base-name>.<ext>" \
+  -c:a aac -b:a 192k \
+  -t -16 -tp -1.5 \
+  --auto-lower-loudness-target -f
+
+# 2. cut the silence from the LEVELED file
+auto-editor "<OUTPUT>/_tmp/pre_<base-name>.<ext>" \
   --edit "audio:threshold=4%" \
   --margin "0.2s" \
   --temp-dir "<OUTPUT>/_tmp/cache_<base-name>" \
   -o "<OUTPUT>/_tmp/<base-name>.<ext>" \
   --no-open
 ```
+
+Delete `pre_<base-name>.<ext>` once auto-editor is done.
+
+This costs two audio passes, not two video encodes: `ffmpeg-normalize` copies the video stream (`-c:v copy`), so `auto-editor` remains the only re-encode.
+
+**You still normalize again in step 6.** Removing silence raises the integrated loudness of what's left, so the file has drifted off -16 LUFS by the time the cut is done.
 
 **Parameters explained:**
 - `--edit "audio:threshold=4%"` → treats anything below 4% of peak volume as silence
@@ -278,6 +298,27 @@ For videos longer than ~10 minutes the process can take a while. Run it in the b
 tail -f "<output-file>" | grep -E --line-buffered "%|done|error|Error|Traceback"
 ```
 
+### 7b. Sanity-check the result before reporting success
+
+**Compare the durations and refuse to call it done if too much vanished.**
+
+Normal speech with pauses loses 10–45%. Past **70% removed**, the threshold didn't match the recording level and the cut ate the speech — you have a destroyed file, not a tight edit.
+
+```bash
+ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "<original>"
+ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "<edited>"
+```
+
+Over 70%? Don't report success. Say plainly that the cut looks broken, and offer a lower threshold:
+
+```bash
+--edit "audio:threshold=2%"
+```
+
+**In batch, check every video, not just the first.** Recording levels vary between files, so one good result says nothing about the next. A real run produced 12–19% on some files and 98% on others in the same folder.
+
+**In batch, stop on the first suspicious file.** Don't grind through the remaining videos producing broken output — the user is waiting on a job that's destroying their footage.
+
 ### 8. Report the result
 
 Once finished, report:
@@ -330,7 +371,8 @@ Until those are parameterized, treat non-Portuguese `--fillers` as usable but un
 - **`--fillers` never runs on its own** — the default mode is free and offline; the filler cut spends API money. It only happens if the user explicitly asks. And even then, the cut list goes to approval before being applied.
 - **Filler cutting always starts from the original video** — if you transcribe the already-cut video and apply the ranges to the original (or vice versa), the timestamps don't line up and the skill cuts real speech.
 - **Never run two `auto-editor` instances at once without an isolated `--temp-dir` per video** — cache collision corrupts the output (audio/video with invalid data, or worse, content mixed in from another leftover cache). To process several videos in parallel, each call needs its own `--temp-dir`, deleted right after use.
-- **Check disk space before a large batch** — each video needs ~2.3x its own size free on disk (the cut intermediate and the final file coexist). Check free space before processing several large videos; if it doesn't fit, pause and ask the user to free space instead of letting ffmpeg fail halfway.
+- **Never report success without comparing durations** — see step 7b. A destroyed file exits cleanly and looks like a finished job; only the duration gives it away.
+- **Check disk space before a large batch** — each video needs ~3.3x its own size free on disk (the leveled input, the cut intermediate, and the final file coexist). Check free space before processing several large videos; if it doesn't fit, pause and ask the user to free space instead of letting ffmpeg fail halfway.
 
 ---
 
@@ -343,6 +385,8 @@ Until those are parameterized, treat non-Portuguese `--fillers` as usable but un
 | `ffmpeg: command not found` | Install ffmpeg and add it to PATH (see the step 2 table) |
 | Error with `--video-codec copy` | Don't use it — the flag doesn't exist in auto-editor 29.x |
 | Video with desynced audio | Don't use `copy` on videos with multiple audio tracks |
+| **Output is a fraction of the original** (163s → 2.7s) | The recording is quiet and its speech sits below the absolute 4% threshold. You skipped the leveling pass in step 5 — normalize first. If it persists, lower the threshold: `--edit "audio:threshold=2%"` |
+| Same threshold works on one video and destroys another | Recording levels differ between files. That's exactly what the step 5 leveling pass is for |
 | Cuts too aggressive / feels rushed | Raise `--margin` to `0.3s` or `0.4s` |
 | Creative drags, too much breathing room | Lower `--margin` to `0.0s` — that's the default for ads |
 | Natural pauses being cut | Lower the threshold: `--edit "audio:threshold=2%"`. The lower the threshold, the less counts as silence. (The `--silent-threshold` flag was removed from auto-editor; it no longer exists in 29.x) |

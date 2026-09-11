@@ -92,6 +92,8 @@ LIMIAR_DUPLICATA   = 0.78   # similaridade de caractere (SequenceMatcher)
 MAX_DUPLICATA_S    = 15.0   # take abandonada maior que isso nao e recomeco
 PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
 
+CORTE_SUSPEITO_PCT = 0.70   # acima disso o corte comeu fala, nao silencio
+
 # Os tres ultimos valores vieram de um falso positivo real, nao de teoria.
 # Num video de 1.1 min, "e cada" (8.96s) casou com "cada um" (45.48s) a 0.727,
 # so por compartilhar "cada", e propos cortar 36,5 SEGUNDOS de narracao boa.
@@ -184,6 +186,19 @@ def extract_chunk(origem: Path, destino: Path, inicio: float, duracao: float):
     subprocess.run(["ffmpeg", "-y", "-i", str(origem), "-ss", str(inicio),
                     "-t", str(duracao), "-acodec", "copy", str(destino)],
                    check=True, capture_output=True)
+
+
+def corte_suspeito(antes_s: float, depois_s: float,
+                   teto: float = CORTE_SUSPEITO_PCT) -> bool:
+    """True se sumiu tanta duracao que e bug, nao edicao.
+
+    Fala com pausa normal perde de 10% a 45%. Passou de 70%, o threshold nao
+    casou com o nivel da gravacao e o corte comeu a fala — caso real: um video
+    de 163s saiu com 2,7s, 98% removido, e so um humano olhando percebeu.
+    """
+    if antes_s <= 0:
+        return False
+    return (antes_s - depois_s) / antes_s > teto
 
 
 def estimar_custo(duracao_s: float, modelo: str = STT_MODEL):
@@ -515,6 +530,15 @@ def autoteste():
           w("cada", 45.48, 45.85), w("um", 45.90, 46.10), w("tem", 46.15, 46.45)]
     assert achar_duplicatas(fp) == [], achar_duplicatas(fp)
 
+    # corte suspeito: o caso real de 163s -> 2.7s tem que disparar, e um corte
+    # normal de aula (10-45% removido) nao pode disparar
+    assert corte_suspeito(163.0, 2.7)
+    assert corte_suspeito(307.0, 7.0)
+    assert not corte_suspeito(318.0, 156.0)    # 51%, agressivo mas plausivel
+    assert not corte_suspeito(69.4, 37.4)      # o teste real do usuario, 46%
+    assert not corte_suspeito(100.0, 100.0)
+    assert not corte_suspeito(0.0, 0.0)        # divisao por zero nao quebra
+
     # custo: tabela bate e modelo desconhecido nao quebra
     assert abs(estimar_custo(600, "deepgram/nova-3") - 0.043) < 1e-6
     assert estimar_custo(600, "modelo/inexistente") is None
@@ -567,14 +591,34 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     tmp_dir = saida.parent / "_tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     cache = tmp_dir / f"cache_{slugify(video.stem)}"
+    pre = tmp_dir / f"{slugify(video.stem)}_pre.mp4"
     corte = tmp_dir / f"{slugify(video.stem)}_corte.mp4"
+
+    # NORMALIZAR ANTES DE CORTAR. O threshold do auto-editor e absoluto (4% do
+    # fundo de escala, ~-28dB), nao relativo ao pico do arquivo. Numa gravacao
+    # baixa — caso real: mean -48dB, pico -22dB — a fala inteira fica ABAIXO do
+    # limiar e o corte destroi o video: 163s viraram 2,7s. Normalizando primeiro,
+    # toda entrada chega no mesmo nivel e o limiar volta a significar algo (nesse
+    # mesmo arquivo, os quadros acima do limiar foram de 0,8% para 81,5%).
+    # Custa duas passagens de audio; o encode de video continua sendo um so,
+    # porque ffmpeg-normalize copia o video (-c:v copy).
+    print("🔊 nivelando audio antes de cortar...", flush=True)
+    r = subprocess.run(
+        ["ffmpeg-normalize", str(video), "-o", str(pre), "-c:a", "aac", "-b:a", "192k",
+         "-t", "-16", "-tp", "-1.5", "--auto-lower-loudness-target", "-f"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if r.returncode != 0 or not pre.exists():
+        print(f"ERRO ao nivelar:\n{(r.stderr or r.stdout)[-800:]}")
+        sys.exit(1)
 
     print(f"✂️  cortando silencio + {len(faixas)//2} trecho(s) (margin {margin})...", flush=True)
     r = subprocess.run(
-        ["auto-editor", str(video), "--edit", "audio:threshold=4%", "--margin", margin,
+        ["auto-editor", str(pre), "--edit", "audio:threshold=4%", "--margin", margin,
          *faixas, "--temp-dir", str(cache), "-o", str(corte), "--no-open"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
+    pre.unlink(missing_ok=True)
     shutil.rmtree(cache, ignore_errors=True)
     if r.returncode != 0 or not corte.exists():
         print(f"ERRO no auto-editor:\n{(r.stderr or r.stdout)[-800:]}")
@@ -595,10 +639,21 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     except OSError:
         pass
 
-    dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                          "-of", "default=noprint_wrappers=1:nokey=1", str(saida)],
-                         capture_output=True, text=True).stdout.strip()
-    print(f"\n✅ {saida}\n   duracao final: {float(dur)/60:.1f} min")
+    antes = get_duration(video)
+    depois = get_duration(saida)
+    pct = (antes - depois) / antes * 100 if antes else 0
+
+    if corte_suspeito(antes, depois):
+        print(f"\n⚠️  CORTE SUSPEITO: {antes/60:.1f} min viraram {depois/60:.1f} min "
+              f"({pct:.0f}% removido).\n"
+              "   Isso nao e pausa, e fala sendo cortada. Quase sempre o threshold\n"
+              "   nao casou com o nivel da gravacao. Confira o arquivo ANTES de usar,\n"
+              "   e se estiver destruido rode de novo com um threshold menor:\n"
+              '     --edit "audio:threshold=2%"\n'
+              f"   Arquivo gerado mesmo assim: {saida}")
+        return
+
+    print(f"\n✅ {saida}\n   {antes/60:.1f} min → {depois/60:.1f} min ({pct:.0f}% removido)")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
