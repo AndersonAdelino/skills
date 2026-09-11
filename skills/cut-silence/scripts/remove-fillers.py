@@ -94,6 +94,15 @@ PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
 
 CORTE_SUSPEITO_PCT = 0.70   # acima disso o corte comeu fala, nao silencio
 
+# -14 LUFS, nao -16. O YouTube SO ABAIXA volume: ele normaliza upload alto para
+# ~-14 e deixa conteudo mais baixo quieto. Entregar a -16 e escolher tocar mais
+# baixo que todo o resto do feed, para sempre. -16 e padrao de podcast (Apple,
+# Spotify falado), que foi o alvo errado desde o inicio.
+# Medido num video real: a -16 o arquivo saiu com pico em -2.82 dBTP; a -14,
+# -0.97 dBTP. Sao ~2 dB de medidor que estavam sobrando sem uso.
+ALVO_LUFS = "-14"
+TETO_DBTP = "-1.0"
+
 # Os tres ultimos valores vieram de um falso positivo real, nao de teoria.
 # Num video de 1.1 min, "e cada" (8.96s) casou com "cada um" (45.48s) a 0.727,
 # so por compartilhar "cada", e propos cortar 36,5 SEGUNDOS de narracao boa.
@@ -605,7 +614,7 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     print("🔊 nivelando audio antes de cortar...", flush=True)
     r = subprocess.run(
         ["ffmpeg-normalize", str(video), "-o", str(pre), "-c:a", "aac", "-b:a", "192k",
-         "-t", "-16", "-tp", "-1.5", "--auto-lower-loudness-target", "-f"],
+         "-t", ALVO_LUFS, "-tp", TETO_DBTP, "--auto-lower-loudness-target", "-f"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     if r.returncode != 0 or not pre.exists():
@@ -627,7 +636,7 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     print("🔊 normalizando audio (-16 LUFS)...", flush=True)
     r = subprocess.run(
         ["ffmpeg-normalize", str(corte), "-o", str(saida), "-c:a", "aac", "-b:a", "192k",
-         "-t", "-16", "-tp", "-1.5", "--auto-lower-loudness-target", "-f"],
+         "-t", ALVO_LUFS, "-tp", TETO_DBTP, "--auto-lower-loudness-target", "-f"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     if r.returncode != 0 or not saida.exists():

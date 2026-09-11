@@ -1,6 +1,6 @@
 ---
 name: cut-silence
-description: Cuts silence from ONE video with auto-editor and normalizes the audio to -16 LUFS. With the `--fillers` flag, also removes filler words, stutters and duplicate takes (the speaker restarting a segment after an error), using word-level transcription plus agent judgment. Triggers "cut the silences", "remove the pauses from this video", "trim the dead air", "speed this video up by cutting pauses", "corta os silêncios", "tira as pausas do vídeo", "tira os tempos mortos", "tira os né/tá do vídeo", "corta as gagueiras". Do NOT use for creative editing (choosing takes, burned-in captions, color grading, overlays, cutting by content) — this skill only removes silence and parasitic sound. If the request is vague like "edit my video", ask what exactly before triggering.
+description: Cuts silence from ONE video with auto-editor and normalizes the audio to -14 LUFS. With the `--fillers` flag, also removes filler words, stutters and duplicate takes (the speaker restarting a segment after an error), using word-level transcription plus agent judgment. Triggers "cut the silences", "remove the pauses from this video", "trim the dead air", "speed this video up by cutting pauses", "corta os silêncios", "tira as pausas do vídeo", "tira os tempos mortos", "tira os né/tá do vídeo", "corta as gagueiras". Do NOT use for creative editing (choosing takes, burned-in captions, color grading, overlays, cutting by content) — this skill only removes silence and parasitic sound. If the request is vague like "edit my video", ask what exactly before triggering.
 argument-hint: <video-path> [--fillers]
 license: MIT
 ---
@@ -130,7 +130,7 @@ This is not hypothetical. A real batch hit it: a lesson recorded at `mean_volume
 ffmpeg-normalize "<video-path>" \
   -o "<OUTPUT>/_tmp/pre_<base-name>.<ext>" \
   -c:a aac -b:a 192k \
-  -t -16 -tp -1.5 \
+  -t -14 -tp -1.0 \
   --auto-lower-loudness-target -f
 
 # 2. cut the silence from the LEVELED file
@@ -146,7 +146,7 @@ Delete `pre_<base-name>.<ext>` once auto-editor is done.
 
 This costs two audio passes, not two video encodes: `ffmpeg-normalize` copies the video stream (`-c:v copy`), so `auto-editor` remains the only re-encode.
 
-**You still normalize again in step 6.** Removing silence raises the integrated loudness of what's left, so the file has drifted off -16 LUFS by the time the cut is done.
+**You still normalize again in step 6.** Removing silence raises the integrated loudness of what's left, so the file has drifted off -14 LUFS by the time the cut is done.
 
 **Parameters explained:**
 - `--edit "audio:threshold=4%"` → treats anything below 4% of peak volume as silence
@@ -271,14 +271,14 @@ Skip this step if you ran `5b` — `--aplicar` already normalized.
 ffmpeg-normalize "<OUTPUT>/_tmp/<base-name>.<ext>" \
   -o "<OUTPUT>/<base-name>_edited.<ext>" \
   -c:a aac -b:a 192k \
-  -t -16 -tp -1.5 \
+  -t -14 -tp -1.0 \
   --auto-lower-loudness-target \
   --print-stats -f
 ```
 
 **Parameters explained:**
-- `-t -16` → integrated EBU R128 loudness target: -16 LUFS (standard for voice/lessons)
-- `-tp -1.5` → true peak ceiling at -1.5 dBTP, never clips even when raising quiet audio
+- `-t -14` → integrated EBU R128 loudness target: -14 LUFS (standard for voice/lessons)
+- `-tp -1.0` → true peak ceiling at -1.0 dBTP, never clips even when raising quiet audio
 - `--auto-lower-loudness-target` → guarantees **linear** normalization (flat gain). Without this flag, audio that can't reach the target without clipping falls back automatically to **dynamic** normalization (an effect similar to a compressor) — which violates "no compression, no effects"
 - `-c:a aac -b:a 192k` → re-encodes audio only; video is copied (`-c:v copy` is the tool's default, no need to pass it)
 - `--print-stats` → logs how much gain was applied to each video
@@ -332,7 +332,7 @@ Once finished, report:
 ⏱️ Original duration: X min Y sec
 ⏱️ Final duration:    X min Y sec
 ✂️  Time saved:       Z sec (N% of the video)
-🔊 Audio normalized:  -16 LUFS (peak ceiling -1.5 dBTP)
+🔊 Audio normalized:  -14 LUFS (peak ceiling -1.0 dBTP)
 ```
 
 To get the durations, use:

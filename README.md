@@ -40,7 +40,7 @@ or `~/.claude/skills/` to have it everywhere.
 
 | Skill | What it does | Dependencies |
 |---|---|---|
-| [cut-silence](skills/cut-silence/) | Cuts the pauses out of talking-head video and normalizes audio to -16 LUFS. Runs offline and free. With `--fillers`, also removes filler words, stutters and duplicate takes (costs cents of API to transcribe) | Python, `ffmpeg`, `auto-editor`, `ffmpeg-normalize` |
+| [cut-silence](skills/cut-silence/) | Cuts the pauses out of talking-head video and normalizes audio to -14 LUFS. Runs offline and free. With `--fillers`, also removes filler words, stutters and duplicate takes (costs cents of API to transcribe) | Python, `ffmpeg`, `auto-editor`, `ffmpeg-normalize` |
 
 Each skill has its own README with installation, usage and known limits.
 

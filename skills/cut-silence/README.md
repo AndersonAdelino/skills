@@ -117,7 +117,7 @@ Three guarantees the skill takes seriously:
 ## What comes out the other side
 
 - Silence and pauses removed (`--edit audio:threshold=4%`, with `0.2s` of breathing room at the edges)
-- Audio normalized to **-16 LUFS** with a peak ceiling at **-1.5 dBTP**, via **linear** EBU R128 loudness — raises quiet audio without clipping and **without a compressor**, so the dynamics of the voice stay intact
+- Audio normalized to **-14 LUFS** with a peak ceiling at **-1.0 dBTP**, via **linear** EBU R128 loudness — raises quiet audio without clipping and **without a compressor**, so the dynamics of the voice stay intact
 - Video not re-encoded during the normalization step (`-c:v copy`)
 
 ## Adjustments worth making
@@ -175,7 +175,7 @@ The API only transcribes. **Everything that requires judgment happens in your ag
                              │◄──────── approved cuts ──────────────────────  │
                              │
                     auto-editor: silence + cuts
-                    ffmpeg-normalize: -16 LUFS
+                    ffmpeg-normalize: -14 LUFS
                              │
                              ▼
                       video_edited.mp4
