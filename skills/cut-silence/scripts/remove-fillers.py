@@ -115,8 +115,13 @@ def _chave_no_env(env: Path):
     A skill costuma ser instalada dentro do projeto de outra pessoa, e o .env
     desse projeto tende a estar cheio de credencial que nao tem nada a ver com
     corte de video. Nao ha motivo para carregar nada disso no processo.
+
+    Le como utf-8-sig, nao utf-8: no Windows, Bloco de Notas e `Out-File
+    -Encoding utf8` gravam BOM. Com utf-8 puro a primeira chave do arquivo vira
+    "﻿OPENROUTER_API_KEY" e nunca casa com o nome — falha invisivel, porque
+    o arquivo parece perfeito em qualquer editor.
     """
-    for linha in env.read_text(encoding="utf-8").splitlines():
+    for linha in env.read_text(encoding="utf-8-sig").splitlines():
         if linha.lstrip().startswith("#") or "=" not in linha:
             continue
         k, v = linha.split("=", 1)
@@ -512,6 +517,12 @@ def autoteste():
 
     env.write_text("SENHA_DO_BANCO=nao-me-leia\n", encoding="utf-8")
     assert _chave_no_env(env) is None
+
+    # BOM: o que o Bloco de Notas e `Out-File -Encoding utf8` gravam no Windows.
+    # Com utf-8 puro a chave viria como "﻿OPENROUTER_API_KEY" e nao casaria.
+    env.write_text("OPENROUTER_API_KEY=sk-com-bom\n", encoding="utf-8-sig")
+    assert env.read_bytes().startswith(b"\xef\xbb\xbf"), "o teste precisa do BOM"
+    assert _chave_no_env(env) == "sk-com-bom", _chave_no_env(env)
     shutil.rmtree(env.parent, ignore_errors=True)
 
     print("✅ autoteste passou")
