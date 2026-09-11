@@ -20,15 +20,23 @@ Inside Claude Code (no Node required):
 Or, if you want editable files inside your project: `npx skills add AndersonAdelino/skills`.
 Or copy the `cut-silence/` folder into `.claude/skills/` in your project (or `~/.claude/skills/` for all of them).
 
-### Dependencies
+### Dependencies — the skill handles these
 
-**This is where most people get stuck, not the skill install.** Two things: the Python packages and `ffmpeg`.
+You don't have to set anything up first. Ask it to cut a video and it checks what's missing, installs the Python packages itself, and offers to install `ffmpeg` for you:
+
+| Dependency | Who does it |
+|---|---|
+| `auto-editor`, `ffmpeg-normalize` | **The skill installs them** |
+| `ffmpeg` — Windows (`winget`) and macOS (`brew`) | **The skill offers to install it** |
+| `ffmpeg` — Linux (`sudo apt`) | You run it — `sudo` needs a password the agent can't type |
+
+> After installing ffmpeg you have to **close and reopen your terminal**. A new binary isn't on the PATH of a shell that's already running. The skill tells you this instead of reporting a phantom failure.
+
+Prefer to do it by hand:
 
 ```bash
 pip install -r requirements.txt
 ```
-
-And `ffmpeg` (with `ffprobe`) on your PATH:
 
 | System | Command |
 |---|---|

@@ -68,13 +68,30 @@ If a Python package is missing, install it:
 pip install auto-editor ffmpeg-normalize
 ```
 
-If `ffmpeg` is missing, instruct per platform:
+If `ffmpeg` is missing, **offer to install it and run the command yourself** once the user says yes. Don't just paste the command and walk away — this is the step most people get stuck on.
 
-| System | Command |
-|---|---|
-| Windows | `winget install Gyan.FFmpeg` (or download from https://ffmpeg.org/download.html and add to PATH) |
-| macOS | `brew install ffmpeg` |
-| Linux (Debian/Ubuntu) | `sudo apt install ffmpeg` |
+| System | Command | Run it yourself? |
+|---|---|---|
+| Windows | `winget install Gyan.FFmpeg` | Yes. May raise a UAC prompt the user has to accept |
+| macOS | `brew install ffmpeg` | Yes. No elevation needed |
+| Linux (Debian/Ubuntu) | `sudo apt install ffmpeg` | **No** — `sudo` wants a password you can't type. Give the command and let the user run it |
+
+**After a successful install, do NOT re-run `ffmpeg -version` and conclude it failed.** A newly installed binary is not on the PATH of an already-running shell, so the check will fail even though the install worked. That false negative is the single most confusing moment for a beginner.
+
+Do this instead: confirm the binary is on disk, then ask for a restart.
+
+```bash
+# Windows
+where.exe ffmpeg 2>nul || dir /s /b "%LOCALAPPDATA%\Microsoft\WinGet\Packages\*ffmpeg.exe" 2>nul
+# macOS / Linux
+command -v ffmpeg || ls -1 /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg 2>/dev/null
+```
+
+Found on disk but not on PATH → tell the user plainly:
+
+> ffmpeg foi instalado. **Feche e abra o terminal** (ou o Claude Code) e me peça de novo — o PATH só atualiza numa sessão nova.
+
+Then stop. Don't try to work around the stale PATH by calling ffmpeg with an absolute path: `auto-editor` and `ffmpeg-normalize` also look for it on the PATH, so the next step would fail anyway.
 
 **Only for `--fillers` mode** (skip if the user didn't ask): needs an OpenRouter key in `OPENROUTER_API_KEY`, either as an environment variable or in a `.env`. No extra Python package — the transcription request goes out over the stdlib. The script looks for the key in the environment first and, failing that, walks up the folder tree looking for a `.env` — reading **only** `OPENROUTER_API_KEY`, never the user's other variables. Without a key it stops with an explanatory message, it doesn't crash.
 
