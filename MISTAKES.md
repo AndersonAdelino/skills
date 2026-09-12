@@ -8,15 +8,33 @@ read the relevant entry first.
 
 ---
 
-## The root pattern
+## The recurring patterns
 
-> **A fixed parameter assumed to be valid for variable input.**
+Read these before the entries. They generalise past any one skill.
 
-Five of the bugs below are the same shape. A constant tuned against one file,
-silently wrong on the next, and invisible because nothing measured the result.
+### 1. A fixed parameter assumed to be valid for variable input
 
-The second pattern, smaller but more dangerous: **reporting a number that came
-from a parameter instead of from the file.**
+Five of the bugs below are this shape: a constant tuned against one file,
+silently wrong on the next, invisible because nothing measured the result.
+
+- `threshold=4%` — absolute, destroyed a quiet recording (163s → 2.7s)
+- `-16 LUFS` — podcast target on YouTube output
+- `--auto-lower-loudness-target` — harmless at 1 dB of gain, abandoned the target at 30
+- `margin 0.1s` — ad pacing applied to a lesson
+- a fixed 3-word probe — missed the exact case the feature was built for
+
+Before hardcoding a number, ask what input would make it wrong, and whether the
+code would *notice*.
+
+### 2. Reporting a number that came from a parameter, not from the file
+
+The command asks; only the measurement knows. A broken file exits zero and looks
+like a finished job. Probe the delivered artefact for every figure you report.
+
+### 3. Generalising from one benign sample
+
+A hypothesis tested against a single easy case and dismissed. It came back as the
+most expensive bug in this list.
 
 ---
 
