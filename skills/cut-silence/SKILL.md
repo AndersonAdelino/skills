@@ -11,7 +11,7 @@ Automatically cuts pauses and silence from talking-head videos using `auto-edito
 
 - **Cost:** $0 in default mode — the tools are free, open source and fully offline
 - **Quality:** keeps the original video quality (no video re-encode during normalization, `-c:v copy`)
-- **Audio:** linear EBU R128 loudness normalization (no dynamic compression, no effects) — raises quiet audio and lowers loud audio to the same perceived level, without ever clipping
+- **Audio:** linear gain to -14 LUFS plus a peak limiter. The voice's dynamics are never compressed; the limiter only shaves transients (mouse clicks, keyboard) that would otherwise cap the gain. The delivered loudness is always **measured**, never assumed
 - **Output:** writes the edited video to `<OUTPUT>/` (see convention below), never overwrites the original
 
 **Optional `--fillers` mode:** also removes filler words ("né", "tá", parasitic "tipo"), stutters, and duplicate takes — where the speaker errs, stops, and redoes a segment from the top. Costs a few cents of API (OpenRouter) because it has to transcribe. **Never runs unless the user asks.** See "Step 5b".
@@ -267,21 +267,35 @@ Silence cut and filler cut come out in the same pass, and normalization rides al
 
 Skip this step if you ran `5b` — `--aplicar` already normalized.
 
+**Measure, compute the gain, apply gain + limiter, then measure again.** Three commands, not one:
+
 ```bash
-ffmpeg-normalize "<OUTPUT>/_tmp/<base-name>.<ext>" \
-  -o "<OUTPUT>/<base-name>_edited.<ext>" \
-  -c:a aac -b:a 192k \
-  -t -14 -tp -1.0 \
-  --auto-lower-loudness-target \
-  --print-stats -f
+# 1. MEASURE the input — never assume
+ffmpeg -hide_banner -nostats -i "<OUTPUT>/_tmp/<base-name>.<ext>" \
+  -af "loudnorm=print_format=json" -f null -      # read "input_i"
+
+# 2. gain = -14 + 0.5 - input_i    (the 0.5 is what the limiter eats back)
+ffmpeg -y -v error -i "<OUTPUT>/_tmp/<base-name>.<ext>" \
+  -af "volume=<gain>dB,alimiter=limit=0.89:level=0" \
+  -c:v copy -c:a aac -b:a 192k \
+  "<OUTPUT>/<base-name>_edited.<ext>"
+
+# 3. MEASURE the output and report that number, not the target
+ffmpeg -hide_banner -nostats -i "<OUTPUT>/<base-name>_edited.<ext>" \
+  -af "loudnorm=print_format=json" -f null -
 ```
 
-**Parameters explained:**
-- `-t -14` → integrated EBU R128 loudness target: -14 LUFS (standard for voice/lessons)
-- `-tp -1.0` → true peak ceiling at -1.0 dBTP, never clips even when raising quiet audio
-- `--auto-lower-loudness-target` → guarantees **linear** normalization (flat gain). Without this flag, audio that can't reach the target without clipping falls back automatically to **dynamic** normalization (an effect similar to a compressor) — which violates "no compression, no effects"
-- `-c:a aac -b:a 192k` → re-encodes audio only; video is copied (`-c:v copy` is the tool's default, no need to pass it)
-- `--print-stats` → logs how much gain was applied to each video
+If the measured result is more than **1 LU** from -14, say so. Don't report the target as if it were achieved.
+
+**Why not `ffmpeg-normalize --auto-lower-loudness-target` anymore.** That flag guarantees pure linear gain, and pays for it by silently abandoning the target whenever the required gain would breach the peak ceiling — by a different amount per file.
+
+A real batch of 18 lessons exposed it. Recordings with a ~22 dB crest factor (mouse clicks and keyboard over quiet speech) came out between **-17.8 and -27.1 LUFS** against a -14 target. The quietest needed 30 dB of gain; by 21 dB the peak was already at the ceiling. All 18 pinned to the peak ceiling at a different loudness each — normalization destroying the very consistency it exists to provide. And it was reported as "-14 LUFS" because -14 was in the command.
+
+A **peak limiter is not a compressor.** It shaves the transient (the click) and never touches the dynamics of the voice, which is what the original promise was protecting. So the skill now chooses explicitly: linear gain plus a limiter, with the result always measured.
+
+- `volume=<gain>dB` → the linear gain, computed from the measurement
+- `alimiter=limit=0.89` → sample ceiling ≈ -1.0 dBFS
+- `-c:v copy` → video untouched; audio only is re-encoded
 
 After a successful normalization, delete the intermediate and the scratch folder, so no junk is left in the user's folder:
 
@@ -292,11 +306,27 @@ rmdir "<OUTPUT>/_tmp" 2>/dev/null || true   # only removes it if empty
 
 ### 7. Run in the background (long videos)
 
-For videos longer than ~10 minutes the process can take a while. Run it in the background and monitor progress:
+For videos longer than ~10 minutes the process can take a while. Run it in the background and check progress by **reading the log**, opening and closing the file each time:
 
 ```bash
-tail -f "<output-file>" | grep -E --line-buffered "%|done|error|Error|Traceback"
+# POSIX
+grep -E "^=== |FAILED|Error|Traceback" "<log>" | tail -20
 ```
+```powershell
+# Windows
+Select-String -Path "<log>" -Pattern "^=== |FAILED|Error|Traceback" | Select-Object -Last 20
+```
+
+**Do not use `tail -f` on Windows.** Git's `tail.exe` holds the file handle open, and PowerShell's `Add-Content` then fails to write silently — so the job looks dead while it's actually running fine. Stopping the task kills the shell but leaves `tail` orphaned, still holding the handle.
+
+**Process videos serially by default.** Parallel lanes are usually *slower* on a normal laptop, not faster. Measured on the same file:
+
+| Lanes | Encoder CPU | Cut phase |
+|---|---|---|
+| 3 | 26% of one core | 2h09 (never finished) |
+| 1 | ~5 cores | 1h03 (finished) |
+
+Three lanes split the same CPU and competed for RAM until one video died with `Cannot allocate memory` in the `loudnorm` filter. Only go parallel with **measured** free memory, and say out loud that the gain is often negative.
 
 ### 7b. Sanity-check the result before reporting success
 
@@ -315,11 +345,33 @@ Over 70%? Don't report success. Say plainly that the cut looks broken, and offer
 --edit "audio:threshold=2%"
 ```
 
+**The opposite is also a failure: under 2% removed.** An already-edited video has no dead air to take out, so the whole run was a re-encode wearing a cut's clothes — it costs quality and delivers nothing. In a real batch, one file burned an hour of CPU to remove 4 seconds (0.7%). Detect it and offer the original instead.
+
 **In batch, check every video, not just the first.** Recording levels vary between files, so one good result says nothing about the next. A real run produced 12–19% on some files and 98% on others in the same folder.
 
 **In batch, stop on the first suspicious file.** Don't grind through the remaining videos producing broken output — the user is waiting on a job that's destroying their footage.
 
+### 7c. Batch: order, resume, and what to check first
+
+The skill is single-video at heart. When the user hands you a folder:
+
+**Before starting, check three things, not one.**
+
+| Check | Why |
+|---|---|
+| Free disk | ~3.3x each video's size (leveled input + cut intermediate + final) |
+| **Free RAM** | The `loudnorm` filter dies with `Cannot allocate memory` on a tight machine. This is what actually broke a real batch, and nothing warned about it |
+| **Input codec** | `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name`. HEVC input decoding into an h264 encode cost **~6x** its h264 siblings. Warn about the time before starting, don't let it look like a hang |
+
+**Resume by duration, never by existence.** A leftover `<name>_edited.mp4` may be a truncated file from an interrupted run — a real batch left one with no `moov` atom, and a naive "the file exists, skip it" would have shipped it. Probe each existing output: if `ffprobe` can't read a duration, or the duration is implausible against the source, redo it.
+
+Before resuming, delete orphaned `pre_*` and `cache_*` from the interrupted run.
+
 ### 8. Report the result
+
+**Every number in this report must be measured on the delivered file.** Not one of them may come from a parameter you passed. In a real batch, 18 lessons were reported as "-14 LUFS" because -14 was in the command; measured, they were between -17.8 and -27.1, a 9.3 LU spread. The user would have published them that way.
+
+Duration, percentage cut, loudness, peak — probe the output file for each.
 
 Once finished, report:
 
@@ -332,8 +384,10 @@ Once finished, report:
 ⏱️ Original duration: X min Y sec
 ⏱️ Final duration:    X min Y sec
 ✂️  Time saved:       Z sec (N% of the video)
-🔊 Audio normalized:  -14 LUFS (peak ceiling -1.0 dBTP)
+🔊 Audio measured:    -13.8 LUFS · peak -0.9 dBTP   (target -14)
 ```
+
+Those loudness figures are examples of the **measured** output. Run the measurement and paste what it actually returns; if it lands more than 1 LU from the target, say so on the same line.
 
 To get the durations, use:
 

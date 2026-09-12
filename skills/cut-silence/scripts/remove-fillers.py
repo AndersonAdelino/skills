@@ -93,15 +93,43 @@ MAX_DUPLICATA_S    = 15.0   # take abandonada maior que isso nao e recomeco
 PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
 
 CORTE_SUSPEITO_PCT = 0.70   # acima disso o corte comeu fala, nao silencio
+CORTE_IRRELEVANTE_PCT = 0.02  # abaixo disso nao valeu o re-encode
 
 # -14 LUFS, nao -16. O YouTube SO ABAIXA volume: ele normaliza upload alto para
 # ~-14 e deixa conteudo mais baixo quieto. Entregar a -16 e escolher tocar mais
-# baixo que todo o resto do feed, para sempre. -16 e padrao de podcast (Apple,
-# Spotify falado), que foi o alvo errado desde o inicio.
-# Medido num video real: a -16 o arquivo saiu com pico em -2.82 dBTP; a -14,
-# -0.97 dBTP. Sao ~2 dB de medidor que estavam sobrando sem uso.
-ALVO_LUFS = "-14"
-TETO_DBTP = "-1.0"
+# baixo que todo o resto do feed, para sempre. -16 e padrao de podcast.
+ALVO_LUFS = -14.0
+
+# Miramos acima do alvo porque o limiter come ~0.5 LU ao aparar os transientes.
+MARGEM_LIMITER = 0.5
+
+# Teto de amostra do limiter, linear. 0.89 ~= -1.0 dBFS.
+TETO_LINEAR = 0.89
+
+# Quanto o resultado medido pode se afastar do alvo antes de virar aviso.
+TOLERANCIA_LU = 1.0
+
+# POR QUE NAO USAMOS MAIS --auto-lower-loudness-target.
+#
+# Aquela flag garante ganho LINEAR puro: nada de dinamica tocada. O preco e que,
+# quando o ganho necessario estouraria o teto de pico, ela desiste do alvo em
+# silencio — e o quanto ela desiste varia por arquivo.
+#
+# Medido num lote real de 18 aulas: gravacoes com crest factor de ~22 dB (clique
+# de mouse e teclado por cima de fala baixa) sairam entre -17.8 e -27.1 LUFS com
+# alvo de -14. O arquivo mais baixo precisava de 30 dB de ganho; aos 21 dB o pico
+# ja batia no teto. Todos os 18 colaram no teto de pico, cada um num loudness
+# diferente — ou seja, a normalizacao destruiu justamente a consistencia que ela
+# existe para dar.
+#
+# A skill prometia "-14 LUFS" E "linear, sem compressao". Nessas fontes as duas
+# promessas sao incompativeis, e a antiga abandonava a primeira sem avisar.
+#
+# A escolha agora e explicita: ganho linear + LIMITER DE PICO. Um limiter nao e
+# um compressor — ele apara o transiente (o clique) e nao encosta na dinamica da
+# fala, que e o que a promessa original queria proteger. E o resultado e SEMPRE
+# medido no arquivo final: se ficar a mais de TOLERANCIA_LU do alvo, a skill diz,
+# em vez de reportar o numero que ela pediu e nao conseguiu cumprir.
 
 # Os tres ultimos valores vieram de um falso positivo real, nao de teoria.
 # Num video de 1.1 min, "e cada" (8.96s) casou com "cada um" (45.48s) a 0.727,
@@ -195,6 +223,70 @@ def extract_chunk(origem: Path, destino: Path, inicio: float, duracao: float):
     subprocess.run(["ffmpeg", "-y", "-i", str(origem), "-ss", str(inicio),
                     "-t", str(duracao), "-acodec", "copy", str(destino)],
                    check=True, capture_output=True)
+
+
+def ganho_para_alvo(medido_lufs: float, alvo: float = ALVO_LUFS) -> float:
+    """dB de ganho linear para levar `medido_lufs` ate `alvo`, ja com a margem
+    que o limiter vai comer de volta."""
+    return round(alvo + MARGEM_LIMITER - medido_lufs, 2)
+
+
+def medir_loudness(caminho: Path):
+    """(loudness_integrado, true_peak) do arquivo, ou (None, None) se falhar.
+
+    Medicao de verdade, no arquivo. Nenhum numero do relatorio pode vir do
+    parametro que pedimos ao ffmpeg: num lote real, 18 aulas foram reportadas
+    como "-14 LUFS" porque -14 era o que estava no comando, enquanto os arquivos
+    estavam entre -17.8 e -27.1. O comando pede; so a medicao sabe.
+    """
+    r = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(caminho),
+         "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    m = re.search(r'\{[^{}]*"input_i"[\s\S]*?\}', (r.stderr or "") + (r.stdout or ""))
+    if not m:
+        return None, None
+    try:
+        d = json.loads(m.group(0))
+        return float(d["input_i"]), float(d["input_tp"])
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+        return None, None
+
+
+def normalizar(entrada: Path, saida: Path, alvo: float = ALVO_LUFS) -> tuple:
+    """Ganho linear + limiter de pico. Devolve (lufs, tp) MEDIDOS na saida.
+
+    Devolve (None, None) se falhar, para o chamador decidir. Nunca devolve o
+    alvo: o valor volta do arquivo, nao do parametro.
+    """
+    medido, _ = medir_loudness(entrada)
+    if medido is None:
+        return None, None
+    ganho = ganho_para_alvo(medido, alvo)
+    filtro = f"volume={ganho}dB,alimiter=limit={TETO_LINEAR}:level=0"
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(entrada), "-af", filtro,
+         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", str(saida)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if r.returncode != 0 or not saida.exists():
+        print(f"ERRO ao normalizar:\n{(r.stderr or r.stdout)[-800:]}")
+        return None, None
+    return medir_loudness(saida)
+
+
+def corte_irrelevante(antes_s: float, depois_s: float,
+                      piso: float = CORTE_IRRELEVANTE_PCT) -> bool:
+    """True se sobrou tao pouco a cortar que o re-encode nao se paga.
+
+    Video ja editado nao tem tempo morto. Num lote real, um arquivo gastou 1h de
+    CPU para remover 4 segundos (0.7%) — re-encode disfarcado de corte, com perda
+    de qualidade e zero ganho.
+    """
+    if antes_s <= 0:
+        return False
+    return (antes_s - depois_s) / antes_s < piso
 
 
 def corte_suspeito(antes_s: float, depois_s: float,
@@ -539,6 +631,12 @@ def autoteste():
           w("cada", 45.48, 45.85), w("um", 45.90, 46.10), w("tem", 46.15, 46.45)]
     assert achar_duplicatas(fp) == [], achar_duplicatas(fp)
 
+    # ganho: o caso real do lote de 18 aulas. O 001 estava a -44.4 LUFS e o alvo
+    # e -14, entao precisa de ~30 dB (mais a margem que o limiter come).
+    assert ganho_para_alvo(-44.4) == 30.9, ganho_para_alvo(-44.4)
+    assert ganho_para_alvo(-14.0) == 0.5
+    assert ganho_para_alvo(-10.0) == -3.5     # fonte alta demais tambem desce
+
     # corte suspeito: o caso real de 163s -> 2.7s tem que disparar, e um corte
     # normal de aula (10-45% removido) nao pode disparar
     assert corte_suspeito(163.0, 2.7)
@@ -547,6 +645,12 @@ def autoteste():
     assert not corte_suspeito(69.4, 37.4)      # o teste real do usuario, 46%
     assert not corte_suspeito(100.0, 100.0)
     assert not corte_suspeito(0.0, 0.0)        # divisao por zero nao quebra
+
+    # corte irrelevante: o caso real do "04 - COMO GERAR FOTOS", 0.7% removido
+    # depois de 1h de CPU. Video ja editado nao tem tempo morto para tirar.
+    assert corte_irrelevante(3600.0, 3575.0)   # 0.7%
+    assert not corte_irrelevante(163.0, 142.4) # 12.6%, corte normal
+    assert not corte_irrelevante(0.0, 0.0)
 
     # custo: tabela bate e modelo desconhecido nao quebra
     assert abs(estimar_custo(600, "deepgram/nova-3") - 0.043) < 1e-6
@@ -612,14 +716,10 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     # Custa duas passagens de audio; o encode de video continua sendo um so,
     # porque ffmpeg-normalize copia o video (-c:v copy).
     print("🔊 nivelando audio antes de cortar...", flush=True)
-    r = subprocess.run(
-        ["ffmpeg-normalize", str(video), "-o", str(pre), "-c:a", "aac", "-b:a", "192k",
-         "-t", ALVO_LUFS, "-tp", TETO_DBTP, "--auto-lower-loudness-target", "-f"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    if r.returncode != 0 or not pre.exists():
-        print(f"ERRO ao nivelar:\n{(r.stderr or r.stdout)[-800:]}")
+    lufs_pre, _ = normalizar(video, pre)
+    if lufs_pre is None:
         sys.exit(1)
+    print(f"   entrada nivelada: {lufs_pre:.1f} LUFS", flush=True)
 
     print(f"✂️  cortando silencio + {len(faixas)//2} trecho(s) (margin {margin})...", flush=True)
     r = subprocess.run(
@@ -633,14 +733,9 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
         print(f"ERRO no auto-editor:\n{(r.stderr or r.stdout)[-800:]}")
         sys.exit(1)
 
-    print("🔊 normalizando audio (-16 LUFS)...", flush=True)
-    r = subprocess.run(
-        ["ffmpeg-normalize", str(corte), "-o", str(saida), "-c:a", "aac", "-b:a", "192k",
-         "-t", ALVO_LUFS, "-tp", TETO_DBTP, "--auto-lower-loudness-target", "-f"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    if r.returncode != 0 or not saida.exists():
-        print(f"ERRO na normalizacao:\n{(r.stderr or r.stdout)[-800:]}")
+    print(f"🔊 normalizando audio (alvo {ALVO_LUFS:.0f} LUFS)...", flush=True)
+    lufs, tp = normalizar(corte, saida)
+    if lufs is None:
         sys.exit(1)
     corte.unlink(missing_ok=True)
     try:
@@ -651,6 +746,22 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     antes = get_duration(video)
     depois = get_duration(saida)
     pct = (antes - depois) / antes * 100 if antes else 0
+
+    # o loudness sai MEDIDO no arquivo entregue, nunca copiado do parametro
+    desvio = abs(lufs - ALVO_LUFS)
+    marca = "" if desvio <= TOLERANCIA_LU else f"  ⚠️  {desvio:.1f} LU fora do alvo"
+    print(f"   audio medido: {lufs:.1f} LUFS · pico {tp:.1f} dBTP{marca}")
+    if desvio > TOLERANCIA_LU:
+        print("   A fonte nao alcancou o alvo mesmo com limiter. Costuma ser\n"
+              "   gravacao muito baixa com pico alto (clique de mouse, teclado).")
+
+    if corte_irrelevante(antes, depois):
+        print(f"\n⚠️  CORTE IRRELEVANTE: so {pct:.1f}% removido "
+              f"({antes - depois:.1f}s de {antes/60:.1f} min).\n"
+              "   Esse video provavelmente ja foi editado e nao tem tempo morto.\n"
+              "   O re-encode custou qualidade e nao entregou ganho. Considere\n"
+              f"   usar o original.\n   Arquivo gerado mesmo assim: {saida}")
+        return
 
     if corte_suspeito(antes, depois):
         print(f"\n⚠️  CORTE SUSPEITO: {antes/60:.1f} min viraram {depois/60:.1f} min "
