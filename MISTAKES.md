@@ -36,6 +36,26 @@ like a finished job. Probe the delivered artefact for every figure you report.
 A hypothesis tested against a single easy case and dismissed. It came back as the
 most expensive bug in this list.
 
+### 4. A heuristic standing in for a judgement
+
+Every detector written here died the same way: a parameter tuned against one
+file, a new file it got wrong, another parameter to patch that, repeat. The
+restart detector reached **eight** calibrated numbers and was still wrong on the
+last real test. The stutter detector was smaller and honest, and still rejected
+10 of the 13 hits it produced, because `"o que que eu faço"` is ordinary spoken
+Portuguese and no comparison of identical words can know that.
+
+Both were answering semantic questions — *is this a stutter, did he restart the
+sentence* — by measuring characters.
+
+They were deleted. The script now measures (timestamps, pauses, confidence,
+waveform energy) and the agent reads and decides. **The first output produced
+that way was better than every heuristic version before it**, on the same file,
+judged by the person whose video it is.
+
+The tell, before it becomes obvious: a parameter added to fix a specific file.
+One is a calibration. Three is a category error.
+
 ---
 
 ## Audio
@@ -229,6 +249,37 @@ a duration, or it's implausible against the source, redo the file.
 checked the input codec or warned about the time. It looked like a hang.
 
 **Fix.** Check the input codec alongside disk and RAM before a batch.
+
+### 2026-09-13 — Stopping a task leaves the encode running, and it compounds
+
+**Symptom.** Two apply runs died in a row. The first with `WinError 8` — the
+system could not create the ffmpeg process at all. The second with exit code 1
+and no message whatsoever.
+
+**Cause.** An `auto-editor` orphaned hours earlier by a cancelled task, holding
+935 MB. Stopping a task kills the shell; the child process keeps running. Same
+trap already recorded for `tail -f`, different victim.
+
+And it **compounds**: each run that dies leaves its own orphan, so every retry
+has less memory than the last. Two failures in, three orphans were alive.
+
+**Fix.** `ram_livre_mb()` warns below 1.8 GB and, when it does, `encodes_rodando()`
+counts live ffmpeg/auto-editor processes and says so — because the number the user
+needs is not "you are low on memory", it is "there are three encodes running and
+you are not editing three videos".
+
+### 2026-09-13 — Three careful layers produced a silent exit
+
+**Symptom.** Exit code 1, no traceback, no message, nothing.
+
+**Cause.** `medir_loudness()` returned `(None, None)` when its regex missed,
+`normalizar()` passed that through, `aplicar()` called `sys.exit(1)`. Every layer
+did the defensive thing, and together they produced a program that stops without a
+word — worse than a traceback, which at least gives you something to search for.
+
+**Fix.** Each failure names itself: `OSError` caught separately (that is where
+`WinError 8` lands) and repeating the RAM warning there, ffmpeg's exit code and
+output tail when the measurement is missing, and one plain line before giving up.
 
 ### 2026-09-12 — `tail -f` made a healthy job look dead
 

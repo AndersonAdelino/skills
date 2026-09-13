@@ -286,6 +286,25 @@ def ram_livre_mb():
     return None
 
 
+def encodes_rodando() -> int:
+    """Quantos ffmpeg/auto-editor estao vivos agora. -1 se nao der para saber."""
+    try:
+        if sys.platform == "win32":
+            r = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=20)
+        else:
+            r = subprocess.run(["ps", "-eo", "comm"], capture_output=True,
+                               text=True, encoding="utf-8", errors="replace",
+                               timeout=20)
+        if r.returncode != 0:
+            return -1
+        baixo = (r.stdout or "").lower()
+        return sum(baixo.count(n) for n in ("ffmpeg", "auto-editor"))
+    except Exception:                       # noqa: BLE001 — contar processo nunca quebra o corte
+        return -1
+
+
 def aviso_de_ram():
     """Avisa se a RAM livre nao comporta o encode. Devolve o aviso, ou None.
 
@@ -298,12 +317,20 @@ def aviso_de_ram():
     livre = ram_livre_mb()
     if livre is None or livre >= RAM_MINIMA_MB:
         return None
-    return (f"apenas {livre/1024:.1f} GB de RAM livre (o encode costuma pedir "
-            f"~{RAM_MINIMA_MB/1024:.1f} GB).\n"
-            "   Feche o navegador e outros programas pesados, ou o ffmpeg pode\n"
-            "   nem conseguir iniciar. Confira tambem se sobrou algum auto-editor\n"
-            "   de uma execucao interrompida: parar a tarefa mata o terminal mas\n"
-            "   deixa o processo filho vivo, segurando a memoria.")
+    msg = (f"apenas {livre/1024:.1f} GB de RAM livre (o encode costuma pedir "
+           f"~{RAM_MINIMA_MB/1024:.1f} GB).\n"
+           "   Feche o navegador e outros programas pesados, ou o ffmpeg pode\n"
+           "   nem conseguir iniciar.")
+    # Sobra de execucao interrompida e acumulativa: parar a tarefa mata o
+    # terminal e deixa o filho vivo, entao cada tentativa que morre come mais
+    # memoria e torna a proxima mais provavel de morrer tambem. Numa sessao real
+    # isso derrubou dois runs seguidos antes de alguem olhar a lista de processos.
+    n = encodes_rodando()
+    if n > 0:
+        msg += (f"\n   Ha {n} processo(s) ffmpeg/auto-editor rodando agora. Se voce"
+                "\n   nao esta editando outro video, sao sobras de uma execucao"
+                "\n   interrompida — encerre-as e a memoria volta.")
+    return msg
 
 
 def ganho_para_alvo(medido_lufs: float, alvo: float = ALVO_LUFS) -> float:
@@ -665,6 +692,9 @@ def autoteste():
     livre = ram_livre_mb()
     assert livre is None or livre > 0, livre
     assert aviso_de_ram() is None or isinstance(aviso_de_ram(), str)
+    # contar processo tambem nunca pode quebrar: -1 quando nao da para saber
+    n = encodes_rodando()
+    assert isinstance(n, int) and n >= -1, n
 
     # ── ganho para o alvo ────────────────────────────────────────────────────
     # o 001 do lote real estava a -44.4 LUFS, alvo -14: ~30 dB mais a margem
