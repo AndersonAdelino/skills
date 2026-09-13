@@ -850,6 +850,14 @@ def autoteste():
         t = [w(fim, 0.0, 0.3), w("Talvez", 1.5, 1.9)]
         assert len(respiros(t, 0.1)) == esperado, (fim, respiros(t, 0.1))
 
+    # respiro que cai dentro de um corte e contradicao (--add-in vs --cut-out).
+    # Reproduz a regra que aplicar() usa, para ela nao se perder num refactor.
+    cortes_t = [(10.0, 12.0), (20.0, 21.0)]
+    ar_t = [(5.0, 5.4), (11.0, 11.4), (9.8, 10.2), (15.0, 15.4), (20.5, 22.0)]
+    sobrevivem = [(a, b) for a, b in ar_t
+                  if not any(a < cb and b > ca for ca, cb in cortes_t)]
+    assert sobrevivem == [(5.0, 5.4), (15.0, 15.4)], sobrevivem
+
     # sem pausa nenhuma nao ha recomeco: fala corrida e fala corrida. Este teste
     # trava a ancora de pausa — tirando ela, a busca por texto sozinha volta a
     # inventar fronteira no meio da frase.
@@ -967,7 +975,12 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     # respiros vem prontos no JSON (quem tem a transcricao e quem os calcula).
     # --add-in preserva a faixa, entao a margem base pode ser apertada sem
     # colar as frases umas nas outras.
-    ar = info.get("respiros") or []
+    #
+    # Respiro que cai dentro de um corte aprovado e contradicao: --add-in manda
+    # guardar o que --cut-out manda tirar. O corte ganha, e o filtro fica AQUI
+    # e nao no chamador — quem monta o JSON nao deve precisar saber disso.
+    ar = [(a, b) for a, b in (info.get("respiros") or [])
+          if not any(a < cb and b > ca for ca, cb in cortes)]
     for a, b in ar:
         faixas += ["--add-in", f"{a:.2f}sec,{b:.2f}sec"]
     if ar:
