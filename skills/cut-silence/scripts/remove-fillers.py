@@ -86,11 +86,24 @@ GAP_GAGUEIRA     = 0.6      # repeticao dentro desse intervalo = gagueira, nao e
 # caso que importa. A precisao vem depois, do agente confirmando candidato a
 # candidato com o texto na frente.
 JANELA_DUPLICATA   = 90.0   # ate onde olhar para tras, em segundos
-MIN_PALAVRAS_DUP   = 2      # tamanho da sonda comparada
 MIN_CHARS_SONDA    = 6      # sonda curta casa por acaso; exigido nos DOIS lados
 LIMIAR_DUPLICATA   = 0.78   # similaridade de caractere (SequenceMatcher)
 MAX_DUPLICATA_S    = 15.0   # take abandonada maior que isso nao e recomeco
 PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
+
+# TAMANHO DE SONDA NAO PODE SER FIXO. Os dois casos reais pedem opostos:
+#
+#   "fala pessoal"  -> "ola pessoal"      so 1 palavra em comum: precisa sonda CURTA
+#   "Ok, parece..." -> "Certo, parece..." 1a palavra difere:     precisa sonda LONGA
+#
+# Com 2 palavras o segundo da 0.737 e passa batido; com 6 da 0.902. Com 6 o
+# primeiro nunca casa. Entao testamos varios tamanhos em cada ponto de recomeco
+# e ficamos com o melhor. Uma sonda curta demais em caracteres simplesmente nao
+# desqualifica as maiores — era essa trava que engolia recomeco comecando em
+# palavra funcional ("O que...", 4 chars).
+SONDAS_DUPLICATA = (2, 3, 4, 6)
+
+PAD_CORTE_S = 0.06          # folga no corte de palavra; ver faixa_palavra()
 
 CORTE_SUSPEITO_PCT = 0.70   # acima disso o corte comeu fala, nao silencio
 CORTE_IRRELEVANTE_PCT = 0.02  # abaixo disso nao valeu o re-encode
@@ -338,6 +351,24 @@ def achar_gagueiras(words: list) -> list:
 
 # ── deteccao de duplicata / recomeco de take ─────────────────────────────────
 
+def faixa_palavra(words: list, i: int, pad: float = PAD_CORTE_S) -> tuple:
+    """(inicio, fim) para cortar a palavra i, com folga ate o silencio vizinho.
+
+    Cortar exatamente [start, end] deixa fragmento audivel em palavra curta. Caso
+    real: um "ok?" de 0.16s — a 60fps sao ~10 quadros, e o auto-editor corta em
+    limite de quadro, entao qualquer desvio de fronteira sobra pedaco.
+
+    A folga so avanca sobre SILENCIO: no maximo metade do intervalo ate o vizinho
+    de cada lado, nunca encostando na palavra ao lado.
+    """
+    ini, fim = words[i]["start"], words[i]["end"]
+    if i > 0:
+        ini -= min(pad, max(0.0, (ini - words[i - 1]["end"]) / 2))
+    if i + 1 < len(words):
+        fim += min(pad, max(0.0, (words[i + 1]["start"] - fim) / 2))
+    return round(ini, 2), round(fim, 2)
+
+
 def _texto(words: list, ini: int, fim: int) -> str:
     """Texto normalizado e colado de words[ini:fim], para comparar."""
     return "".join(_norm(w["word"]) for w in words[ini:fim])
@@ -345,7 +376,7 @@ def _texto(words: list, ini: int, fim: int) -> str:
 
 def achar_duplicatas(words: list,
                      janela_s: float = JANELA_DUPLICATA,
-                     minimo: int = MIN_PALAVRAS_DUP,
+                     sondas: tuple = SONDAS_DUPLICATA,
                      limiar: float = LIMIAR_DUPLICATA,
                      max_span_s: float = MAX_DUPLICATA_S,
                      pausa_min: float = PAUSA_RECOMECO) -> list:
@@ -369,28 +400,38 @@ def achar_duplicatas(words: list,
     n = len(words)
     achados = []
     ultimo_fim = -1
-    for j in range(1, n - minimo + 1):
+    menor = min(sondas)
+    for j in range(1, n - menor + 1):
         if j <= ultimo_fim:                         # ja dentro de um corte achado
             continue
         if words[j]["start"] - words[j - 1]["end"] < pausa_min:
             continue                                # sem pausa, nao e recomeco
-        sonda = _texto(words, j, j + minimo)
-        if len(sonda) < MIN_CHARS_SONDA:
-            continue
         melhor = None
-        for i in range(j - minimo, -1, -1):
-            if words[j]["start"] - words[i]["start"] > janela_s:
-                break                               # saiu da janela, para de olhar
-            # o lado de tras tambem precisa de corpo: foi um alvo de 5 chars
-            # ("ecada") que gerou o falso positivo de 36s no primeiro teste real
-            alvo = _texto(words, i, i + minimo)
-            if len(alvo) < MIN_CHARS_SONDA:
+        for tam in sondas:
+            if j + tam > n:
                 continue
-            r = difflib.SequenceMatcher(None, sonda, alvo).ratio()
-            if r >= limiar and (melhor is None or r > melhor[1]):
-                melhor = (i, r)
+            sonda = _texto(words, j, j + tam)
+            if len(sonda) < MIN_CHARS_SONDA:
+                continue                            # este tamanho nao serve; os outros ainda podem
+            for i in range(j - tam, -1, -1):
+                if words[j]["start"] - words[i]["start"] > janela_s:
+                    break                           # saiu da janela, para de olhar
+                # o lado de tras tambem precisa de corpo: foi um alvo de 5 chars
+                # ("ecada") que gerou o falso positivo de 36s no primeiro teste real
+                alvo = _texto(words, i, i + tam)
+                if len(alvo) < MIN_CHARS_SONDA:
+                    continue
+                r = difflib.SequenceMatcher(None, sonda, alvo).ratio()
+                if r >= limiar and (melhor is None or r > melhor[1]):
+                    melhor = (i, r)
         if melhor:
             i, r = melhor
+            # Dois pontos de recomeco podem casar com a MESMA origem (o texto se
+            # repete tres vezes), e aí as duas faixas se sobrepoem. Sobreposicao
+            # vira corte maior do que qualquer uma das duas propunha, entao a
+            # segunda e descartada.
+            if i < ultimo_fim:
+                continue
             dur = words[j]["start"] - words[i]["start"]
             if dur <= max_span_s:
                 achados.append({"ini": i, "fim": j - 1, "eco": j,
@@ -604,6 +645,48 @@ def autoteste():
     assert achados, "nao achou o recomeco de take"
     # a take ruim inteira sai (0..5) e a boa comeca em "ola" (6)
     assert achados[0]["ini"] == 0 and achados[0]["eco"] == 6, achados[0]
+
+    # REGRESSAO: recomeco em que a PRIMEIRA palavra muda. Caso real do ACEBBOK-02
+    # ("Ok, parece muita coisa mas não é" -> "Certo, parece muita coisa mas não
+    # é"). Com sonda de 2 da 0.737 e passa batido; com 6 da 0.902. Este teste
+    # trava a varredura multi-tamanho: voltando a sonda fixa, ele falha.
+    troca = []
+    for k, t in enumerate(["ok", "parece", "muita", "coisa", "mas", "nao"]):
+        troca.append(w(t, k * 0.4, k * 0.4 + 0.3))
+    base = 5 * 0.4 + 0.3 + 1.2                 # pausa de 1.2s antes do recomeco
+    for k, t in enumerate(["certo", "parece", "muita", "coisa", "mas", "nao"]):
+        troca.append(w(t, base + k * 0.4, base + k * 0.4 + 0.3))
+    achados = achar_duplicatas(troca)
+    assert achados and achados[0]["ini"] == 0 and achados[0]["eco"] == 6, achados
+
+    # REGRESSAO: recomeco comecando em palavra funcional curta. Caso real do
+    # ACEBBOK-02 ("O que que eu nao recomendo..." -> "O que eu nao recomendo...").
+    # A sonda de 2 da "oque", 4 chars, abaixo do minimo — antes isso descartava o
+    # ponto inteiro; agora so descarta aquele tamanho.
+    curto = []
+    for k, t in enumerate(["o", "que", "que", "eu", "nao", "recomendo"]):
+        curto.append(w(t, k * 0.4, k * 0.4 + 0.3))
+    base = 5 * 0.4 + 0.3 + 0.9
+    for k, t in enumerate(["o", "que", "eu", "nao", "recomendo", "mas"]):
+        curto.append(w(t, base + k * 0.4, base + k * 0.4 + 0.3))
+    assert achar_duplicatas(curto), "recomeco em palavra funcional curta foi perdido"
+
+    # folga no corte, com os tempos reais do "ok?" de 0.16s do ACEBBOK-02.
+    # Atras ele esta colado em "ativos" (silencio zero), entao nao avanca nada.
+    # Na frente ha 0.24s de silencio; metade seria 0.12, mas o teto PAD_CORTE_S
+    # de 0.06 e menor e vence.
+    tres = [w("ativos", 0.0, 0.64), w("ok", 0.64, 0.80), w("e", 1.04, 1.37)]
+    ini, fim = faixa_palavra(tres, 1)
+    assert ini == 0.64, ini
+    assert abs(fim - 0.86) < 0.011, fim
+    assert fim < tres[2]["start"], "a folga encostou na palavra seguinte"
+
+    # silencio apertado: aqui metade do intervalo (0.02) e menor que o teto, e a
+    # folga tem que ceder — senao ela invade a palavra seguinte
+    apertado = [w("a", 0.0, 0.50), w("ok", 0.50, 0.66), w("b", 0.70, 1.00)]
+    _, fim = faixa_palavra(apertado, 1)
+    assert abs(fim - 0.68) < 0.011, fim
+    assert fim < apertado[2]["start"]
 
     # sem pausa nenhuma nao ha recomeco: fala corrida e fala corrida. Este teste
     # trava a ancora de pausa — tirando ela, a busca por texto sozinha volta a
