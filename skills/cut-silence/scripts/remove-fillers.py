@@ -4,19 +4,23 @@ remove-fillers.py — transcreve com timestamp por palavra e acha candidatos a c
 
 Script da skill /cut-silence (modo --fillers).
 
-DIVISAO DE TRABALHO. Este script NAO julga o que e vicio de linguagem. Ele faz
-so o que precisa de API ou de heuristica deterministica:
+O SCRIPT MEDE, O AGENTE JULGA. Este script nao decide nada sobre a fala. Ele
+entrega medicao:
 
   1. extrai audio e transcreve com timestamp por palavra
-  2. acha candidatos mecanicos: gagueira (palavra colada repetida) e duplicata
-     (take abandonada, o locutor refez o trecho do inicio)
+  2. anota, por palavra, a pausa antes dela e a confianca do ASR
   3. escreve tudo num JSON
 
-Quem le esse JSON, corrige a transcricao, decide os vicios de linguagem e monta
-o relatorio e o agente (Claude Code), seguindo o passo a passo do SKILL.md. Julgar
-no agente sai mais barato, nao depende de acertar um prompt para um modelo remoto,
-funciona em qualquer idioma e deixa voce discordar de um corte na conversa em vez
-de editar JSON na mao.
+Quem le esse JSON, corrige a transcricao e decide o que cortar — vicio, gagueira,
+recomeco de take, palavra truncada — e o agente (Claude Code), seguindo o passo
+5b do SKILL.md.
+
+Houve detector de gagueira e de recomeco aqui dentro. Sairam. "Isso e gagueira?"
+e "ele recomecou a frase?" sao perguntas SEMANTICAS: em portugues falado
+"o que que eu faco" e construcao normal, e nenhuma comparacao de palavras
+identicas distingue isso de "eu eu acho". A busca de recomeco chegou a oito
+parametros calibrados e ainda errava. Regra escrita num SKILL.md envelhece
+melhor que numero calibrado contra um arquivo.
 
 O texto deste script fica em portugues de proposito: o modo --fillers nasceu
 calibrado em PT-BR. O resto do repositorio e em ingles.
@@ -36,7 +40,6 @@ Este arquivo e autocontido de proposito: a skill precisa funcionar copiada
 sozinha para outra maquina, entao nao importa nada de fora da propria pasta.
 """
 
-import difflib
 import json
 import os
 import re
@@ -71,39 +74,32 @@ PRECO_MIN = {
 MAX_MB        = 15          # base64 incha ~33%, entao 15MB cru ~ 20MB no request
 CHUNK_MINUTES = 18
 
-# guardrails locais
-MAX_SEQUENCIA    = 6        # nunca remover mais de 6 palavras seguidas
-GAP_GAGUEIRA     = 0.6      # repeticao dentro desse intervalo = gagueira, nao enfase
-
-# ── duplicata (recomeco de take) ──────────────────────────────────────────────
-# Gagueira e palavra colada repetida ("hoje hoje eu vou"). Duplicata e outra
-# coisa: o locutor percebe que errou, para, e refaz o trecho inteiro do comeco
-# ("Fala pessoal! ... Olá pessoal! Anderson aqui"). O corte certo vai do inicio
-# da take ruim ate o inicio da take boa.
+# O SCRIPT MEDE. O AGENTE JULGA.
 #
-# A busca abaixo e PERMISSIVA de proposito (recall): "fala pessoal" e "ola
-# pessoal" so coincidem numa palavra, entao um limiar apertado perderia justo o
-# caso que importa. A precisao vem depois, do agente confirmando candidato a
-# candidato com o texto na frente.
-JANELA_DUPLICATA   = 90.0   # ate onde olhar para tras, em segundos
-MIN_CHARS_SONDA    = 6      # sonda curta casa por acaso; exigido nos DOIS lados
-LIMIAR_DUPLICATA   = 0.78   # similaridade de caractere (SequenceMatcher)
-MAX_DUPLICATA_S    = 15.0   # take abandonada maior que isso nao e recomeco
-PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
-
-# TAMANHO DE SONDA NAO PODE SER FIXO. Os dois casos reais pedem opostos:
+# Aqui nao ha mais nenhum detector de gagueira nem de recomeco de take. Houve, e
+# a conta ficou cara: a busca de recomeco chegou a OITO parametros (tamanho de
+# sonda, limiar, janela, minimo de caracteres, teto de duracao, empate, recuo,
+# pausa), cada um nascido de uma falha especifica, e ainda assim errava. A busca
+# de gagueira era menor e mais honesta, mas rejeitava 10 dos 13 achados num
+# arquivo real: em portugues falado "o que que eu faco" e construcao normal, nao
+# gagueira, e nenhuma comparacao de palavras identicas vai saber a diferenca.
 #
-#   "fala pessoal"  -> "ola pessoal"      so 1 palavra em comum: precisa sonda CURTA
-#   "Ok, parece..." -> "Certo, parece..." 1a palavra difere:     precisa sonda LONGA
+# As duas perguntas — "isso e gagueira?", "ele recomecou a frase?" — sao
+# SEMANTICAS. Quem le o texto responde; quem compara caracteres aproxima.
 #
-# Com 2 palavras o segundo da 0.737 e passa batido; com 6 da 0.902. Com 6 o
-# primeiro nunca casa. Entao testamos varios tamanhos em cada ponto de recomeco
-# e ficamos com o melhor. Uma sonda curta demais em caracteres simplesmente nao
-# desqualifica as maiores — era essa trava que engolia recomeco comecando em
-# palavra funcional ("O que...", 4 chars).
-SONDAS_DUPLICATA = (2, 3, 4, 6)
-EMPATE_SONDA        = 0.08  # dentro disso e empate: ganha o comeco mais cedo
-RECUO_MAX_PALAVRAS  = 4     # ate onde o empate pode recuar o inicio da take
+# Entao o script entrega medicao, e so medicao:
+#
+#   start / end     fronteira da palavra
+#   gap_antes       o silencio antes dela. Quem recomeca para antes de
+#                   recomecar, e essa pausa some numa transcricao em texto
+#                   corrido — e o unico sinal que ler o texto nao recupera
+#   conf            confianca do ASR naquela palavra. Palavra truncada no meio
+#                   da silaba ("É mu... É muito grande") volta como fragmento
+#                   sem sentido e com confianca baixa: e assim que se acha um
+#                   tipo de gagueira que nenhuma comparacao de texto pega
+#
+# O julgamento vive no SKILL.md, que e onde da para escrever uma regra em vez de
+# calibrar um numero.
 
 PAD_CORTE_S = 0.06          # folga no corte de palavra; ver faixa_palavra()
 
@@ -180,20 +176,6 @@ TOLERANCIA_LU = 1.0
 # Num video de 1.1 min, "e cada" (8.96s) casou com "cada um" (45.48s) a 0.727,
 # so por compartilhar "cada", e propos cortar 36,5 SEGUNDOS de narracao boa.
 # Recomeco de take de verdade dura segundos e casa com folga: o caso que motivou
-# o recurso ("fala pessoal" -> "ola pessoal") da 0.857 em 2,5s.
-
-# Palavras que nao podem sair por palpite de vicio, por mais convencido que o
-# juiz esteja. Vocativo: quem grava uma aula fala com a audiencia o tempo todo
-# ("era isso, pessoal"). Pronome: tirar o sujeito quebra a frase ("o que ele
-# corrigiu" -> "o que corrigiu"), erro real observado em teste.
-# Gagueira e duplicata sao isentas: a palavra sobrevive na outra ocorrencia.
-PROTEGIDO = {
-    "pessoal", "galera", "cara", "gente", "vocês", "voces", "você", "voce",
-    "eu", "ele", "ela", "eles", "elas", "nós", "nos",
-    "meu", "minha", "seu", "sua", "dele", "dela",
-}
-
-
 def _norm(s: str) -> str:
     return re.sub(r"[^\wáàâãéêíóôõúüç]", "", s.lower().strip())
 
@@ -347,42 +329,6 @@ def corte_suspeito(antes_s: float, depois_s: float,
     return (antes_s - depois_s) / antes_s > teto
 
 
-def estimar_custo(duracao_s: float, modelo: str = STT_MODEL):
-    """$ estimado da transcricao. None se o modelo nao esta na tabela."""
-    preco = PRECO_MIN.get(modelo)
-    return None if preco is None else (duracao_s / 60.0) * preco
-
-
-def _fmt_custo(v) -> str:
-    return "?" if v is None else (f"${v:.4f}" if v < 0.01 else f"${v:.2f}")
-
-
-# ── deteccao de gagueira (heuristica pura) ───────────────────────────────────
-
-def achar_gagueiras(words: list) -> list:
-    """Palavra repetida imediatamente e colada = gagueira. Devolve indices a remover.
-
-    Numa repeticao 'eu eu eu acho', mantem a ULTIMA ocorrencia (a que emenda na
-    frase) e remove as anteriores.
-    """
-    remover = []
-    i = 0
-    while i < len(words):
-        j = i
-        while (j + 1 < len(words)
-               and _norm(words[j]["word"]) == _norm(words[i]["word"])
-               and _norm(words[i]["word"])
-               and words[j + 1]["start"] - words[j]["end"] < GAP_GAGUEIRA
-               and _norm(words[j + 1]["word"]) == _norm(words[i]["word"])):
-            j += 1
-        if j > i:
-            remover.extend(range(i, j))   # tudo menos a ultima
-        i = j + 1
-    return remover
-
-
-# ── deteccao de duplicata / recomeco de take ─────────────────────────────────
-
 def respiros(words: list, base_s: float,
              frase_s: float = RESPIRO_FRASE,
              topico_s: float = RESPIRO_TOPICO,
@@ -487,153 +433,14 @@ def faixa_palavra(words: list, i: int, pad: float = PAD_CORTE_S) -> tuple:
     return round(ini, 2), round(fim, 2)
 
 
-def _texto(words: list, ini: int, fim: int) -> str:
-    """Texto normalizado e colado de words[ini:fim], para comparar."""
-    return "".join(_norm(w["word"]) for w in words[ini:fim])
+def estimar_custo(duracao_s: float, modelo: str = STT_MODEL):
+    """$ estimado da transcricao. None se o modelo nao esta na tabela."""
+    preco = PRECO_MIN.get(modelo)
+    return None if preco is None else (duracao_s / 60.0) * preco
 
 
-def achar_duplicatas(words: list,
-                     janela_s: float = JANELA_DUPLICATA,
-                     sondas: tuple = SONDAS_DUPLICATA,
-                     limiar: float = LIMIAR_DUPLICATA,
-                     max_span_s: float = MAX_DUPLICATA_S,
-                     pausa_min: float = PAUSA_RECOMECO) -> list:
-    """Acha take abandonada: o locutor comeca, erra, para, e refaz do inicio.
-
-    Parte das PAUSAS, nao do texto. Quem recomeca para antes de recomecar, entao
-    so palavra precedida de pausa e candidata a inicio de take nova. Para cada
-    uma, olha para tras procurando o comeco parecido que ela esta refazendo.
-
-    Buscar pelo texto primeiro nao funciona: em "fala pessoal ... ola pessoal"
-    as duas versoes so compartilham UMA palavra, e qualquer sonda maior afunda a
-    similaridade. Ancorar na pausa deixa a sonda ser curta sem encher de falso
-    positivo, porque so os pontos de recomeco sao testados.
-
-    Achando o par (i, j), a take ruim e words[i:j] inteira. Fica a ultima versao,
-    que e a corrigida — o mesmo corte que um editor humano faria.
-
-    Devolve [{ini, fim, eco, score, dur_s}, ...] com `fim` inclusivo.
-    Candidatos, nao veredito: quem confirma e o agente, lendo o texto.
-    """
-    n = len(words)
-    achados = []
-    ultimo_fim = -1
-    menor = min(sondas)
-    for j in range(1, n - menor + 1):
-        if j <= ultimo_fim:                         # ja dentro de um corte achado
-            continue
-        if words[j]["start"] - words[j - 1]["end"] < pausa_min:
-            continue                                # sem pausa, nao e recomeco
-        achou = []
-        for tam in sondas:
-            if j + tam > n:
-                continue
-            sonda = _texto(words, j, j + tam)
-            if len(sonda) < MIN_CHARS_SONDA:
-                continue                            # este tamanho nao serve; os outros ainda podem
-            for i in range(j - tam, -1, -1):
-                if words[j]["start"] - words[i]["start"] > janela_s:
-                    break                           # saiu da janela, para de olhar
-                # o lado de tras tambem precisa de corpo: foi um alvo de 5 chars
-                # ("ecada") que gerou o falso positivo de 36s no primeiro teste real
-                alvo = _texto(words, i, i + tam)
-                if len(alvo) < MIN_CHARS_SONDA:
-                    continue
-                r = difflib.SequenceMatcher(None, sonda, alvo).ratio()
-                if r >= limiar:
-                    achou.append((i, r))
-        melhor = None
-        if achou:
-            # ENTRE QUASE-EMPATADOS, COMECAR PELO MAIS CEDO.
-            # A take abandonada comeca onde ela comeca; casar no meio dela deixa
-            # um toco colado na take boa. Caso real: "O que que eu nao recomendo
-            # ... O que eu nao recomendo" casou em "que" (137) e nao em "O" (135),
-            # entao sobrou "O que" antes do recomeco e o usuario ouviu
-            # "O que... O que eu nao recomendo". Cortar um pouco a mais e
-            # sempre melhor que deixar um toco.
-            teto = max(r for _, r in achou)
-            bons = {i for i, r in achou if r >= teto - EMPATE_SONDA}
-            # Recuar para o inicio da take e so para nao deixar toco — sao duas,
-            # tres palavras. Sem limite, uma frase comum repetida muito antes
-            # ("se voce for fazer") tambem casa 1.0, vence por ser mais cedo, e
-            # leva o corte a 88 segundos. O recuo fica preso perto do casamento
-            # mais proximo do recomeco.
-            alvo = max(bons)
-            perto = sorted(i for i in bons
-                           if alvo - i <= RECUO_MAX_PALAVRAS and i >= ultimo_fim)
-            # Do mais cedo para o mais tarde, fica o primeiro que couber no teto
-            # de duracao. Parar no primeiro que nao couber joga fora recomeco bom.
-            for cand in perto:
-                dur = words[j]["start"] - words[cand]["start"]
-                if dur <= max_span_s:
-                    melhor = (cand, max(r for k, r in achou if k == cand), dur)
-                    break
-        if melhor:
-            i, r, dur = melhor
-            achados.append({"ini": i, "fim": j - 1, "eco": j,
-                            "score": round(r, 2), "dur_s": round(dur, 2)})
-            ultimo_fim = j
-    return achados
-
-
-# ── juncao de indices em faixas de tempo ──────────────────────────────────────
-
-def indices_para_faixas(words: list, indices: list) -> list:
-    """Agrupa indices consecutivos e devolve [(inicio_s, fim_s), ...]."""
-    if not indices:
-        return []
-    idx = sorted(set(indices))
-    faixas, ini = [], idx[0]
-    ant = idx[0]
-    for k in idx[1:]:
-        if k != ant + 1:
-            faixas.append((words[ini]["start"], words[ant]["end"]))
-            ini = k
-        ant = k
-    faixas.append((words[ini]["start"], words[ant]["end"]))
-    return faixas
-
-
-def validar(words: list, indices: list, gagueiras: set = frozenset(),
-            duplicatas: set = frozenset()) -> tuple:
-    """Devolve (indices_limpos, avisos). Descarta o que viola guardrail.
-
-    `gagueiras` e `duplicatas` sao isentas de PROTEGIDO, e duplicata tambem de
-    MAX_SEQUENCIA: um recomeco e longo por definicao, e cada palavra dele
-    reaparece na take boa logo em seguida. O limite de 6 existe para conter
-    palpite de vicio, onde bloco longo e sinal de julgamento errado.
-    """
-    avisos = []
-    n = len(words)
-    limpos = sorted({i for i in indices if isinstance(i, int) and 0 <= i < n})
-    isentos = set(duplicatas)
-
-    descartados = len(set(indices)) - len(limpos)
-    if descartados > 0:
-        avisos.append(f"{descartados} indice(s) fora da faixa 0..{n-1}, descartados")
-
-    fora = []
-    seq = []
-    for i in [x for x in limpos if x not in isentos] + [None]:
-        if seq and (i is None or i != seq[-1] + 1):
-            if len(seq) > MAX_SEQUENCIA:
-                fora.extend(seq)
-            seq = []
-        if i is not None:
-            seq.append(i)
-    if fora:
-        avisos.append(f"{len(fora)} palavra(s) em bloco maior que {MAX_SEQUENCIA} seguidas, descartadas")
-        limpos = [i for i in limpos if i not in set(fora)]
-
-    prot = [i for i in limpos
-            if i not in gagueiras and i not in isentos
-            and _norm(words[i]["word"]) in PROTEGIDO]
-    if prot:
-        amostra = ", ".join(sorted({words[i]["word"].strip() for i in prot})[:5])
-        avisos.append(f"{len(prot)} palavra(s) protegida(s) recusada(s) ({amostra})")
-        limpos = [i for i in limpos if i not in set(prot)]
-
-    return limpos, avisos
+def _fmt_custo(v) -> str:
+    return "?" if v is None else (f"${v:.4f}" if v < 0.01 else f"${v:.2f}")
 
 
 # ── transcricao via OpenRouter ────────────────────────────────────────────────
@@ -708,195 +515,71 @@ def transcrever(video: Path, modelo: str = STT_MODEL) -> list:
     return words
 
 
-# ── contexto para o relatorio ────────────────────────────────────────────────
+# ── autoteste ─────────────────────────────────────────────────────────────────
 
-def contexto(words: list, i: int, janela: int = 4) -> str:
-    ini, fim = max(0, i - janela), min(len(words), i + janela + 1)
-    return " ".join(
-        (f"[{w['word'].strip()}]" if k == i else w["word"].strip())
-        for k, w in enumerate(words[ini:fim], start=ini)
-    )
 
 
 # ── autoteste ─────────────────────────────────────────────────────────────────
+#
+# So sobrou o que e genuinamente mecanico. Cada caso abaixo veio de um bug real
+# e carrega os numeros dele, para ninguem afrouxar um limite sem o teste cair.
 
 def autoteste():
     w = lambda t, s, e: {"word": t, "start": s, "end": e}
 
-    # gagueira: mantem a ultima repeticao
-    words = [w("eu", 0.0, 0.2), w("eu", 0.25, 0.45), w("eu", 0.5, 0.7), w("acho", 0.75, 1.1)]
-    assert achar_gagueiras(words) == [0, 1], achar_gagueiras(words)
+    # ── encaixe no vale ──────────────────────────────────────────────────────
+    # curva de 1s a cada 0.01s, fala alta com um vale em 0.50s
+    vale = [100.0] * 100
+    vale[50] = 1.0
+    assert encaixar_no_vale(vale, 0.47) == 0.50, encaixar_no_vale(vale, 0.47)
+    assert encaixar_no_vale(vale, 0.55) == 0.50
+    assert encaixar_no_vale(vale, 0.90) != 0.50    # fora do alcance de 0.15s
+    assert encaixar_no_vale([], 1.234) == 1.234    # sem curva, tempo intacto
+    assert isinstance(encaixar_no_vale(vale, 99.0), float)   # alem do fim, sem estourar
 
-    # pausa longa entre iguais nao e gagueira, e enfase
-    words = [w("muito", 0.0, 0.3), w("muito", 2.0, 2.3)]
-    assert achar_gagueiras(words) == [], achar_gagueiras(words)
+    dois = [100.0] * 100
+    dois[48] = 30.0
+    dois[52] = 2.0
+    assert encaixar_no_vale(dois, 0.50) == 0.52, encaixar_no_vale(dois, 0.50)
 
-    # palavras diferentes nao viram gagueira
-    words = [w("o", 0.0, 0.1), w("problema", 0.15, 0.6)]
-    assert achar_gagueiras(words) == []
-
-    # faixas: indices consecutivos viram uma faixa so
-    words = [w("a", 0, 1), w("b", 1, 2), w("c", 2, 3), w("d", 5, 6)]
-    assert indices_para_faixas(words, [0, 1, 3]) == [(0, 2), (5, 6)]
-    assert indices_para_faixas(words, []) == []
-
-    # guardrail: indice fora da faixa cai fora
-    limpos, avisos = validar(words, [0, 99, -3])
-    assert limpos == [0] and any("fora da faixa" in a for a in avisos), (limpos, avisos)
-
-    # guardrail: bloco longo demais e recusado
-    muitos = [w(str(i), i, i + 0.5) for i in range(20)]
-    limpos, avisos = validar(muitos, list(range(0, MAX_SEQUENCIA + 2)))
-    assert limpos == [], (limpos, avisos)
-
-    # ...mas duplicata e isenta: recomeco de take e longo por natureza
-    dup = set(range(0, MAX_SEQUENCIA + 2))
-    limpos, _ = validar(muitos, list(dup), duplicatas=dup)
-    assert limpos == sorted(dup), limpos
-
-    # guardrail: vocativo protegido
-    voc = [w("obrigado", 0, 1), w("pessoal", 1, 2)]
-    limpos, avisos = validar(voc, [1])
-    assert limpos == [] and any("protegida" in a for a in avisos), (limpos, avisos)
-
-    # guardrail: pronome protegido — o erro real observado ("o que [ele] corrigiu")
-    pron = [w("que", 0, 1), w("ele", 1, 2), w("corrigiu", 2, 3)]
-    assert validar(pron, [1])[0] == []
-
-    # ...mas gagueira e isenta, senao a protecao de pronome mataria o recurso
-    gag = [w("eu", 0.0, 0.2), w("eu", 0.25, 0.45), w("eu", 0.5, 0.7), w("acho", 0.75, 1.1)]
-    idx = achar_gagueiras(gag)
-    assert validar(gag, idx, gagueiras=set(idx))[0] == [0, 1], validar(gag, idx, set(idx))
-
-    # duplicata: take abandonada e refeita. O caso real que motivou o recurso —
-    # "Fala pessoal" e "Ola pessoal" so coincidem numa palavra. A pausa de 0.8s
-    # antes de "ola" e o que marca o recomeco, como na fala de verdade.
-    dup_words = []
-    for k, t in enumerate(["fala", "pessoal", "hoje", "eu", "vou", "falar"]):
-        dup_words.append(w(t, k * 0.5, k * 0.5 + 0.4))
-    base = 5 * 0.5 + 0.4 + 0.8
-    for k, t in enumerate(["ola", "pessoal", "anderson", "aqui"]):
-        dup_words.append(w(t, base + k * 0.5, base + k * 0.5 + 0.4))
-    achados = achar_duplicatas(dup_words)
-    assert achados, "nao achou o recomeco de take"
-    # a take ruim inteira sai (0..5) e a boa comeca em "ola" (6)
-    assert achados[0]["ini"] == 0 and achados[0]["eco"] == 6, achados[0]
-
-    # REGRESSAO: recomeco em que a PRIMEIRA palavra muda. Caso real do ACEBBOK-02
-    # ("Ok, parece muita coisa mas não é" -> "Certo, parece muita coisa mas não
-    # é"). Com sonda de 2 da 0.737 e passa batido; com 6 da 0.902. Este teste
-    # trava a varredura multi-tamanho: voltando a sonda fixa, ele falha.
-    troca = []
-    for k, t in enumerate(["ok", "parece", "muita", "coisa", "mas", "nao"]):
-        troca.append(w(t, k * 0.4, k * 0.4 + 0.3))
-    base = 5 * 0.4 + 0.3 + 1.2                 # pausa de 1.2s antes do recomeco
-    for k, t in enumerate(["certo", "parece", "muita", "coisa", "mas", "nao"]):
-        troca.append(w(t, base + k * 0.4, base + k * 0.4 + 0.3))
-    achados = achar_duplicatas(troca)
-    assert achados and achados[0]["ini"] == 0 and achados[0]["eco"] == 6, achados
-
-    # REGRESSAO: recomeco comecando em palavra funcional curta. Caso real do
-    # ACEBBOK-02 ("O que que eu nao recomendo..." -> "O que eu nao recomendo...").
-    # A sonda de 2 da "oque", 4 chars, abaixo do minimo — antes isso descartava o
-    # ponto inteiro; agora so descarta aquele tamanho.
-    curto = []
-    for k, t in enumerate(["o", "que", "que", "eu", "nao", "recomendo"]):
-        curto.append(w(t, k * 0.4, k * 0.4 + 0.3))
-    base = 5 * 0.4 + 0.3 + 0.9
-    for k, t in enumerate(["o", "que", "eu", "nao", "recomendo", "mas"]):
-        curto.append(w(t, base + k * 0.4, base + k * 0.4 + 0.3))
-    achados = achar_duplicatas(curto)
-    assert achados, "recomeco em palavra funcional curta foi perdido"
-
-    # ...e tem que comecar no PRIMEIRO "o", nao no meio da take abandonada.
-    # Casando em 137 em vez de 135, o corte deixava "O que" colado no recomeco e
-    # o usuario ouvia "O que... O que eu nao recomendo". Cortar um pouco a mais
-    # e sempre melhor que deixar um toco.
-    assert achados[0]["ini"] == 0, achados[0]
-
-    # REGRESSAO: tres takes seguidas. O segundo recomeco casa melhor com a
-    # PRIMEIRA take, mas essa ja foi cortada. Preferir o inicio mais cedo nao
-    # pode fazer o ponto inteiro cair fora — tem que recuar para a alternativa
-    # valida. Descartar o ponto custou tres recomecos bons num teste real.
-    tres_takes = []
-    t = 0.0
-    for grupo in (["quanto", "mais", "antigo", "melhor"],
-                  ["quanto", "mais", "antigo", "melhor", "para", "estrutura"],
-                  ["quanto", "mais", "antigo", "melhor", "com", "credibilidade"]):
-        t += 0.9                                   # pausa marcando o recomeco
-        for palavra in grupo:
-            tres_takes.append(w(palavra, t, t + 0.3))
-            t += 0.4
-    achados = achar_duplicatas(tres_takes)
-    assert len(achados) == 2, achados
-    assert achados[0]["ini"] == 0, achados[0]      # 1a take sai inteira
-    assert achados[1]["ini"] == 4, achados[1]      # 2a recua, nao some
-    assert achados[1]["ini"] > achados[0]["fim"], "as faixas se sobrepoem"
-
-    # folga no corte, com os tempos reais do "ok?" de 0.16s do ACEBBOK-02.
-    # Atras ele esta colado em "ativos" (silencio zero), entao nao avanca nada.
-    # Na frente ha 0.24s de silencio; metade seria 0.12, mas o teto PAD_CORTE_S
-    # de 0.06 e menor e vence.
+    # ── folga no corte de palavra ────────────────────────────────────────────
+    # tempos reais do "ok?" de 0.16s que sobrou pela metade. Atras ele esta
+    # colado em "ativos" (silencio zero), entao nao avanca. Na frente ha 0.24s;
+    # metade seria 0.12, mas o teto de 0.06 e menor e vence.
     tres = [w("ativos", 0.0, 0.64), w("ok", 0.64, 0.80), w("e", 1.04, 1.37)]
     ini, fim = faixa_palavra(tres, 1)
     assert ini == 0.64, ini
     assert abs(fim - 0.86) < 0.011, fim
     assert fim < tres[2]["start"], "a folga encostou na palavra seguinte"
 
-    # silencio apertado: aqui metade do intervalo (0.02) e menor que o teto, e a
-    # folga tem que ceder — senao ela invade a palavra seguinte
+    # silencio apertado: metade do intervalo (0.02) vence o teto
     apertado = [w("a", 0.0, 0.50), w("ok", 0.50, 0.66), w("b", 0.70, 1.00)]
     _, fim = faixa_palavra(apertado, 1)
     assert abs(fim - 0.68) < 0.011, fim
     assert fim < apertado[2]["start"]
 
-    # encaixe no vale: curva de 1s a cada 0.01s, fala alta com um vale em 0.50s
-    vale = [100.0] * 100
-    vale[50] = 1.0
-    assert encaixar_no_vale(vale, 0.47) == 0.50, encaixar_no_vale(vale, 0.47)
-    assert encaixar_no_vale(vale, 0.55) == 0.50
-    # fora do alcance de 0.15s, nao inventa: fica no minimo da janela local
-    assert encaixar_no_vale(vale, 0.90) != 0.50
-    # sem curva (ffmpeg falhou) devolve o tempo intacto — encaixe e melhoria
-    assert encaixar_no_vale([], 1.234) == 1.234
-    # tempo alem do fim da curva nao estoura indice
-    assert isinstance(encaixar_no_vale(vale, 99.0), float)
-
-    # o vale escolhido e o MENOR, nao o primeiro que aparece
-    dois = [100.0] * 100
-    dois[48] = 30.0
-    dois[52] = 2.0
-    assert encaixar_no_vale(dois, 0.50) == 0.52, encaixar_no_vale(dois, 0.50)
-
     # ── respiro variavel ─────────────────────────────────────────────────────
-    # meio de frase nao ganha respiro: nao termina em pontuacao
     meio = [w("vou", 0.0, 0.3), w("falar", 0.5, 0.9), w("sobre", 1.6, 2.0)]
-    assert respiros(meio, 0.1) == [], respiros(meio, 0.1)
+    assert respiros(meio, 0.1) == [], respiros(meio, 0.1)   # sem pontuacao, sem respiro
 
-    # silencio menor que o respiro: guarda o silencio que existe, nao inventa ar
     frase = [w("coisas.", 0.0, 0.3), w("Primeiro", 0.5, 0.9)]
-    assert respiros(frase, 0.1) == [(0.3, 0.5)], respiros(frase, 0.1)
+    assert respiros(frase, 0.1) == [(0.3, 0.5)], respiros(frase, 0.1)  # guarda o que existe
 
-    # silencio de sobra: guarda o respiro de frase inteiro (0.35), nao tudo
     folga = [w("coisas.", 0.0, 0.3), w("Primeiro", 0.75, 1.15)]
-    assert respiros(folga, 0.1) == [(0.3, 0.65)], respiros(folga, 0.1)
-    assert folga[1]["start"] - folga[0]["end"] < PAUSA_TOPICO   # ainda nao e topico
+    assert respiros(folga, 0.1) == [(0.3, 0.65)], respiros(folga, 0.1)  # guarda 0.35, nao tudo
+    assert folga[1]["start"] - folga[0]["end"] < PAUSA_TOPICO
 
-    # pausa longa = virada de assunto -> respiro maior (0.60)
     topico = [w("entender.", 0.0, 0.3), w("Agora", 1.4, 1.8)]
-    assert respiros(topico, 0.1) == [(0.3, 0.9)], respiros(topico, 0.1)
-    assert topico[1]["start"] - topico[0]["end"] >= PAUSA_TOPICO
+    assert respiros(topico, 0.1) == [(0.3, 0.9)], respiros(topico, 0.1)  # virada: 0.60
 
-    # pausa que a margem base ja cobre nao vira --add-in redundante
     curta = [w("coisas.", 0.0, 0.3), w("Primeiro", 0.35, 0.7)]
-    assert respiros(curta, 0.1) == [], respiros(curta, 0.1)
+    assert respiros(curta, 0.1) == [], respiros(curta, 0.1)  # a margem base ja cobre
 
-    # interrogacao e exclamacao contam como fim de frase; virgula nao
-    for fim, esperado in [("agora?", 1), ("agora!", 1), ("agora,", 0), ("agora", 0)]:
-        t = [w(fim, 0.0, 0.3), w("Talvez", 1.5, 1.9)]
-        assert len(respiros(t, 0.1)) == esperado, (fim, respiros(t, 0.1))
+    for fim_frase, esperado in [("agora?", 1), ("agora!", 1), ("agora,", 0), ("agora", 0)]:
+        t = [w(fim_frase, 0.0, 0.3), w("Talvez", 1.5, 1.9)]
+        assert len(respiros(t, 0.1)) == esperado, (fim_frase, respiros(t, 0.1))
 
-    # respiro que cai dentro de um corte e contradicao (--add-in vs --cut-out).
+    # respiro dentro de um corte e contradicao (--add-in vs --cut-out).
     # Reproduz a regra que aplicar() usa, para ela nao se perder num refactor.
     cortes_t = [(10.0, 12.0), (20.0, 21.0)]
     ar_t = [(5.0, 5.4), (11.0, 11.4), (9.8, 10.2), (15.0, 15.4), (20.5, 22.0)]
@@ -904,59 +587,27 @@ def autoteste():
                   if not any(a < cb and b > ca for ca, cb in cortes_t)]
     assert sobrevivem == [(5.0, 5.4), (15.0, 15.4)], sobrevivem
 
-    # sem pausa nenhuma nao ha recomeco: fala corrida e fala corrida. Este teste
-    # trava a ancora de pausa — tirando ela, a busca por texto sozinha volta a
-    # inventar fronteira no meio da frase.
-    plano = [w(t, k * 0.5, k * 0.5 + 0.4) for k, t in enumerate(
-        ["fala", "pessoal", "hoje", "eu", "vou", "falar", "ola", "pessoal", "anderson", "aqui"])]
-    assert achar_duplicatas(plano) == [], achar_duplicatas(plano)
-
-    # texto sem repeticao nao gera candidato
-    limpo = ["hoje", "vamos", "falar", "sobre", "normalizacao", "de", "audio"]
-    sem = [w(t, i * 0.5, i * 0.5 + 0.4) for i, t in enumerate(limpo)]
-    assert achar_duplicatas(sem) == [], achar_duplicatas(sem)
-
-    # eco longe demais nao conta: recapitular no fim da aula nao e recomeco
-    longe = [w("fala", 0, 0.4), w("pessoal", 0.5, 0.9), w("beleza", 1.0, 1.4),
-             w("fala", 500, 500.4), w("pessoal", 500.5, 500.9), w("beleza", 501, 501.4)]
-    assert achar_duplicatas(longe) == []
-
-    # REGRESSAO, falso positivo real (video de 1.1 min, primeiro teste com audio
-    # de verdade): "e cada" em 8.96s casou com "cada um" em 45.48s a 0.727, so
-    # por compartilhar "cada", e propos cortar 36,5s de narracao boa. Tres coisas
-    # matam isso — alvo curto demais, 36s nao e recomeco, e 0.727 < 0.78.
-    fp = [w("e", 8.96, 9.10), w("cada", 9.15, 9.50), w("vez", 9.55, 9.90),
-          w("que", 9.95, 10.20), w("voce", 10.25, 10.60),
-          w("cada", 45.48, 45.85), w("um", 45.90, 46.10), w("tem", 46.15, 46.45)]
-    assert achar_duplicatas(fp) == [], achar_duplicatas(fp)
-
-    # ganho: o caso real do lote de 18 aulas. O 001 estava a -44.4 LUFS e o alvo
-    # e -14, entao precisa de ~30 dB (mais a margem que o limiter come).
+    # ── ganho para o alvo ────────────────────────────────────────────────────
+    # o 001 do lote real estava a -44.4 LUFS, alvo -14: ~30 dB mais a margem
     assert ganho_para_alvo(-44.4) == 30.9, ganho_para_alvo(-44.4)
     assert ganho_para_alvo(-14.0) == 0.5
-    assert ganho_para_alvo(-10.0) == -3.5     # fonte alta demais tambem desce
+    assert ganho_para_alvo(-10.0) == -3.5          # fonte alta tambem desce
 
-    # corte suspeito: o caso real de 163s -> 2.7s tem que disparar, e um corte
-    # normal de aula (10-45% removido) nao pode disparar
+    # ── guardrails de corte ──────────────────────────────────────────────────
+    # o caso real de 163s -> 2.7s tem que disparar
     assert corte_suspeito(163.0, 2.7)
     assert corte_suspeito(307.0, 7.0)
-    assert not corte_suspeito(318.0, 156.0)    # 51%, agressivo mas plausivel
-    assert not corte_suspeito(69.4, 37.4)      # o teste real do usuario, 46%
+    assert not corte_suspeito(318.0, 156.0)        # 51%, agressivo mas plausivel
+    assert not corte_suspeito(69.4, 37.4)          # teste real do usuario, 46%
     assert not corte_suspeito(100.0, 100.0)
-    assert not corte_suspeito(0.0, 0.0)        # divisao por zero nao quebra
+    assert not corte_suspeito(0.0, 0.0)            # divisao por zero nao quebra
 
-    # corte irrelevante: o caso real do "04 - COMO GERAR FOTOS", 0.7% removido
-    # depois de 1h de CPU. Video ja editado nao tem tempo morto para tirar.
-    assert corte_irrelevante(3600.0, 3575.0)   # 0.7%
-    assert not corte_irrelevante(163.0, 142.4) # 12.6%, corte normal
+    # o "04 - COMO GERAR FOTOS": 1h de CPU para tirar 0.7%
+    assert corte_irrelevante(3600.0, 3575.0)
+    assert not corte_irrelevante(163.0, 142.4)     # 12.6%, corte normal
     assert not corte_irrelevante(0.0, 0.0)
 
-    # custo: tabela bate e modelo desconhecido nao quebra
-    assert abs(estimar_custo(600, "deepgram/nova-3") - 0.043) < 1e-6
-    assert estimar_custo(600, "modelo/inexistente") is None
-    assert _fmt_custo(None) == "?"
-
-    # .env: le a chave da skill e ignora o resto
+    # ── .env ─────────────────────────────────────────────────────────────────
     env = Path(tempfile.mkdtemp(prefix="remove-fillers-teste-")) / ".env"
     env.write_text("# comentario\nSENHA_DO_BANCO=nao-me-leia\n"
                    "OPENROUTER_API_KEY=sk-teste\n", encoding="utf-8")
@@ -965,15 +616,13 @@ def autoteste():
     env.write_text('OPENROUTER_API_KEY="sk-com-aspas"\n', encoding="utf-8")
     assert _chave_no_env(env) == "sk-com-aspas"
 
-    # chave vazia (o proprio .env.example) nao conta como achada
     env.write_text("OPENROUTER_API_KEY=\n", encoding="utf-8")
-    assert _chave_no_env(env) is None
+    assert _chave_no_env(env) is None              # .env.example nao conta
 
     env.write_text("SENHA_DO_BANCO=nao-me-leia\n", encoding="utf-8")
     assert _chave_no_env(env) is None
 
-    # BOM: o que o Bloco de Notas e `Out-File -Encoding utf8` gravam no Windows.
-    # Com utf-8 puro a chave viria como "﻿OPENROUTER_API_KEY" e nao casaria.
+    # BOM: o que Bloco de Notas e `Out-File -Encoding utf8` gravam no Windows
     env.write_text("OPENROUTER_API_KEY=sk-com-bom\n", encoding="utf-8-sig")
     assert env.read_bytes().startswith(b"\xef\xbb\xbf"), "o teste precisa do BOM"
     assert _chave_no_env(env) == "sk-com-bom", _chave_no_env(env)
@@ -1175,21 +824,34 @@ def main():
         sys.exit(1)
 
     dur = words[-1]["end"]
-    gagueiras = achar_gagueiras(words)
-    duplicatas = achar_duplicatas(words)
+
+    # Medicao, e so medicao. `gap_antes` e o silencio antes da palavra: quem
+    # recomeca para antes de recomecar, e essa pausa some numa transcricao em
+    # texto corrido. `conf` denuncia palavra truncada no meio da silaba, que
+    # volta como fragmento sem sentido e com confianca baixa.
+    saida_words = []
+    anterior_fim = 0.0
+    baixa_conf = []
+    for i, x in enumerate(words):
+        item = {"i": i, "word": x["word"].strip(),
+                "start": round(x["start"], 2), "end": round(x["end"], 2),
+                "gap_antes": round(max(0.0, x["start"] - anterior_fim), 2)}
+        c = x.get("confidence")
+        if c is not None:
+            item["conf"] = round(float(c), 3)
+            if float(c) < 0.5:
+                baixa_conf.append(i)
+        saida_words.append(item)
+        anterior_fim = x["end"]
+
+    pausas = sum(1 for x in saida_words if x["gap_antes"] >= 0.35)
 
     dados = {
         "modelo_stt": modelo,
         "custo_estimado_usd": round(estimar_custo(dur, modelo) or 0, 4),
         "palavras": len(words),
         "duracao_s": round(dur, 2),
-        "candidatos": {
-            "gagueiras": gagueiras,
-            "duplicatas": duplicatas,
-        },
-        "words": [{"i": i, "word": w["word"].strip(),
-                   "start": round(w["start"], 2), "end": round(w["end"], 2)}
-                  for i, w in enumerate(words)],
+        "words": saida_words,
     }
     saida.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -1197,13 +859,16 @@ def main():
     print(f"  {len(words)} palavras · {dur/60:.1f} min de fala · {modelo}")
     print(f"  custo da transcricao: {_fmt_custo(estimar_custo(dur, modelo))}")
     print(f"{'='*72}")
-    print(f"  candidatos mecanicos encontrados:")
-    print(f"     {len(gagueiras):3} gagueira(s)")
-    print(f"     {len(duplicatas):3} duplicata(s) / recomeco(s) de take")
+    print(f"  {pausas} pausa(s) de 0.35s ou mais — candidatas a inicio de take nova")
+    if baixa_conf:
+        print(f"  {len(baixa_conf)} palavra(s) com confianca abaixo de 0.5 — "
+              "veja se sao fragmento truncado")
+    elif not any("conf" in x for x in saida_words):
+        print("  (este modelo nao devolveu confianca por palavra)")
     print(f"{'='*72}")
     print(f"\n💾 {saida}")
-    print("\nVicio de linguagem NAO foi julgado aqui: quem le este JSON, corrige a")
-    print("transcricao e decide os cortes e o agente, seguindo o SKILL.md.")
+    print("\nNada foi julgado aqui. Quem le este JSON, corrige a transcricao e")
+    print("decide os cortes e o agente, seguindo o passo 5b do SKILL.md.")
 
 
 if __name__ == "__main__":

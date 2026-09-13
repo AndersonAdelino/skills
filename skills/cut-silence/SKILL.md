@@ -210,7 +210,7 @@ After running, delete the cache folder: `rm -rf "<OUTPUT>/_tmp/cache_<base-name>
 
 This step replaces steps 5 and 6, because the filler cut goes into the *same* auto-editor call as the silence cut. One encode, no quality loss from encoding twice.
 
-#### 1) Transcribe and collect candidates
+#### 1) Transcribe
 
 ```bash
 python "<SKILL-FOLDER>/scripts/remove-fillers.py" "<ORIGINAL-video-path>" --json "<output>.json"
@@ -218,7 +218,13 @@ python "<SKILL-FOLDER>/scripts/remove-fillers.py" "<ORIGINAL-video-path>" --json
 
 Use the **original** video, never the already-cut one: the timestamps have to line up with the timeline auto-editor will receive.
 
-The script prints the estimated cost **before** spending it, transcribes with `deepgram/nova-3` via OpenRouter, and writes a JSON with every word (`i`, `word`, `start`, `end`) plus two candidate lists: `gagueiras` and `duplicatas`.
+The script prints the estimated cost **before** spending it, transcribes with `deepgram/nova-3`, and writes one word per entry:
+
+```json
+{ "i": 243, "word": "Se", "start": 96.4, "end": 96.6, "gap_antes": 4.00, "conf": 0.99 }
+```
+
+**It finds nothing for you.** There is no candidate list. `gap_antes` (the silence before the word) and `conf` (the ASR's confidence) are measurements, and they exist because reading a plain transcript loses them.
 
 If the model returns no word timestamps, the script says so and suggests `--modelo microsoft/mai-transcribe-2`. Pass it along and re-run.
 
@@ -228,11 +234,45 @@ Before judging anything, correct what the ASR misheard — tool names, jargon, p
 
 Whisper-family models hallucinate "Obrigado" over silent stretches in PT. If you see repeated thank-yous nobody said, ignore them — they land on silence that `--edit` removes anyway.
 
-#### 3) Decide the cuts, in three categories
+#### 3) Find the cuts yourself, in four categories
 
-- **Fillers** — parasitic sound that can leave without changing meaning: "né", "hum", "ahn", hesitant "é é é", "tipo" meaning "sort of" (not the category sense), confirmation "tá?" at the end of a sentence. **Never cut** vocatives the speaker aims at the audience (`pessoal`, `galera`, `gente`), connectives that carry reasoning (`então`, `aí`, `olha`, `bom`, `agora`), or any word whose removal breaks the sentence. When in doubt, keep it — a stray "né" is cheap; a missing subject ruins the take.
-- **Stutters** — the `gagueiras` list. Already precise; just sanity-check a few.
-- **Duplicates** — the `duplicatas` list. **Confirm each one by reading the text**, because these cuts are long.
+Read the transcript. No detector will hand you a list — that was tried and removed, because every one of these questions is semantic.
+
+**a. Fillers.** Parasitic sound that leaves without changing meaning: "né", "hum", "ahn", hesitant "é é é", "tipo" meaning "sort of" (not the category sense), and confirmation tags at the end of a sentence — "tá?", "ok?", "está?", "perfeito?".
+
+> **The same word is not always a filler.** `"...vendas, ok?"` closes a sentence asking for agreement → cut. `"Ok, parece muita coisa"` opens one and carries the reasoning → keep. Judge the position, not the token.
+
+**Never cut**: vocatives aimed at the audience (`pessoal`, `galera`, `gente`, `cara`), connectives that carry reasoning (`então`, `aí`, `olha`, `bom`, `agora`), pronouns and subjects, or any word whose removal breaks the sentence. When in doubt, keep it — a stray "né" is cheap; a missing subject ruins the take.
+
+**b. Stutters.** A word repeated glued to itself: `"hoje hoje eu vou"`, `"em em usuários"`, `"para você você compra"`.
+
+> **`"o que que eu faço"` is not a stutter.** It is ordinary spoken Brazilian Portuguese. A mechanical detector flagged 13 of these on a real file and 10 were this construction. Removing them makes the speaker sound like someone else.
+
+**c. Truncated words.** The speaker starts a word, aborts mid-syllable, and restarts: `"É mu… É muito grande"`. The ASR can't render this as a repeat — it comes back as an orphan fragment. The real case, with the pauses marked:
+
+```
+   um bloqueio por atividade comum a. É [gap 2.29s] muito grande.
+                                    ▲  ▲
+                             orphan ┘  └ stopped here, then redid it
+```
+
+Look for a **short token that makes no sense in its sentence**, especially one next to a long `gap_antes`. That pair is the signature.
+
+`conf` helps when present, but don't count on it: `deepgram/nova-3` through OpenRouter does **not** return per-word confidence. The script says so when the field is missing instead of pretending. The pause alone is enough to find these.
+
+**d. Restarts (abandoned takes).** The speaker errs, stops, and redoes the segment from the top. **Use `gap_antes`**: nobody restarts without stopping first, so scan words with `gap_antes >= 0.35` and ask whether what follows redoes what came before.
+
+Two shapes, both real:
+
+```
+   "Fala pessoal, hoje eu vou falar…"   ▏ only ONE word in common
+   "Olá pessoal, Anderson aqui"         ▏
+
+   "Ok,    parece muita coisa mas não"  ▏ first word differs, rest identical
+   "Certo, parece muita coisa mas não"  ▏
+```
+
+**Cut from the start of the abandoned take, never from the middle.** Matching two words in cost a real edit: the cut began at `que` instead of `O que`, and the listener heard *"O que… O que eu não recomendo"*. A stub is worse than an over-cut — nobody notices half a second of extra silence, everybody notices a word said twice.
 
 **The test that separates a restart from legitimate repetition:**
 
