@@ -105,6 +105,17 @@ SONDAS_DUPLICATA = (2, 3, 4, 6)
 
 PAD_CORTE_S = 0.06          # folga no corte de palavra; ver faixa_palavra()
 
+# ── encaixe do corte no vale de energia ──────────────────────────────────────
+# A fronteira que o ASR devolve ("a palavra ok vai de 149.04 a 149.20") e uma
+# ESTIMATIVA. Errando tres centesimos, sobra pedaco de palavra — foi o "ok"
+# cortado no meio que o usuario ouviu. Editor humano nao corta onde a palavra
+# termina: corta onde a onda esta mais baixa por perto, no vale entre os sons.
+#
+# Entao cada fronteira desliza ate o minimo local de energia. Isso nao depende
+# mais da precisao do modelo de transcricao — a decisao final sai do audio.
+JANELA_SNAP_S = 0.15        # quanto a fronteira pode deslizar, para cada lado
+PASSO_RMS_S   = 0.01        # resolucao da curva de energia
+
 CORTE_SUSPEITO_PCT = 0.70   # acima disso o corte comeu fala, nao silencio
 CORTE_IRRELEVANTE_PCT = 0.02  # abaixo disso nao valeu o re-encode
 
@@ -350,6 +361,65 @@ def achar_gagueiras(words: list) -> list:
 
 
 # ── deteccao de duplicata / recomeco de take ─────────────────────────────────
+
+def curva_rms(video: Path, passo_s: float = PASSO_RMS_S) -> list:
+    """Energia (RMS) do audio, uma amostra a cada `passo_s`. [] se falhar.
+
+    So stdlib: ffmpeg decodifica para wav mono 8kHz e o resto e `wave` + `array`.
+    8kHz basta de sobra — estamos procurando onde a fala PARA, nao timbre.
+    """
+    import array
+    import math
+    import wave
+
+    tmp = Path(tempfile.gettempdir()) / "remove-fillers"
+    tmp.mkdir(parents=True, exist_ok=True)
+    w = tmp / f"{slugify(video.stem)}_rms.wav"
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(video),
+         "-vn", "-ac", "1", "-ar", "8000", "-f", "wav", str(w)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if r.returncode != 0 or not w.exists():
+        return []
+    try:
+        with wave.open(str(w), "rb") as f:
+            if f.getsampwidth() != 2:
+                return []
+            taxa = f.getframerate()
+            bruto = f.readframes(f.getnframes())
+    finally:
+        w.unlink(missing_ok=True)
+
+    amostras = array.array("h")
+    amostras.frombytes(bruto[:len(bruto) - (len(bruto) % 2)])
+    salto = max(1, int(taxa * passo_s))
+    curva = []
+    for k in range(0, len(amostras), salto):
+        bloco = amostras[k:k + salto]
+        if not bloco:
+            break
+        curva.append(math.sqrt(sum(x * x for x in bloco) / len(bloco)))
+    return curva
+
+
+def encaixar_no_vale(curva: list, t: float, passo_s: float = PASSO_RMS_S,
+                     janela_s: float = JANELA_SNAP_S) -> float:
+    """Desliza `t` ate o ponto de menor energia dentro de +-`janela_s`.
+
+    Sem curva (ffmpeg falhou), devolve `t` intacto: encaixar e melhoria, nao
+    requisito — a skill continua cortando sem ele.
+    """
+    if not curva:
+        return round(t, 3)
+    centro = int(t / passo_s)
+    raio = max(1, int(janela_s / passo_s))
+    a, b = max(0, centro - raio), min(len(curva), centro + raio + 1)
+    if a >= b:
+        return round(t, 3)
+    melhor = min(range(a, b), key=lambda k: curva[k])
+    return round(melhor * passo_s, 3)
+
 
 def faixa_palavra(words: list, i: int, pad: float = PAD_CORTE_S) -> tuple:
     """(inicio, fim) para cortar a palavra i, com folga ate o silencio vizinho.
@@ -688,6 +758,24 @@ def autoteste():
     assert abs(fim - 0.68) < 0.011, fim
     assert fim < apertado[2]["start"]
 
+    # encaixe no vale: curva de 1s a cada 0.01s, fala alta com um vale em 0.50s
+    vale = [100.0] * 100
+    vale[50] = 1.0
+    assert encaixar_no_vale(vale, 0.47) == 0.50, encaixar_no_vale(vale, 0.47)
+    assert encaixar_no_vale(vale, 0.55) == 0.50
+    # fora do alcance de 0.15s, nao inventa: fica no minimo da janela local
+    assert encaixar_no_vale(vale, 0.90) != 0.50
+    # sem curva (ffmpeg falhou) devolve o tempo intacto — encaixe e melhoria
+    assert encaixar_no_vale([], 1.234) == 1.234
+    # tempo alem do fim da curva nao estoura indice
+    assert isinstance(encaixar_no_vale(vale, 99.0), float)
+
+    # o vale escolhido e o MENOR, nao o primeiro que aparece
+    dois = [100.0] * 100
+    dois[48] = 30.0
+    dois[52] = 2.0
+    assert encaixar_no_vale(dois, 0.50) == 0.52, encaixar_no_vale(dois, 0.50)
+
     # sem pausa nenhuma nao ha recomeco: fala corrida e fala corrida. Este teste
     # trava a ancora de pausa — tirando ela, a busca por texto sozinha volta a
     # inventar fronteira no meio da frase.
@@ -777,12 +865,30 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     Por isso a flag e repetida uma vez por faixa.
     """
     info = json.loads(dados.read_text(encoding="utf-8"))
-    faixas = []
-    for a, b in info["cortes"]:
-        faixas += ["--cut-out", f"{a:.2f}sec,{b:.2f}sec"]
-    if not faixas:
+    cortes = info["cortes"]
+    if not cortes:
         print("Nada a cortar: o JSON nao tem faixas.")
         sys.exit(1)
+
+    print("📊 medindo energia do audio para encaixar os cortes...", flush=True)
+    curva = curva_rms(video)
+    if curva:
+        movidos = 0
+        encaixados = []
+        for a, b in cortes:
+            na, nb = encaixar_no_vale(curva, a), encaixar_no_vale(curva, b)
+            if nb <= na:                      # encaixe degenerou: fica o original
+                na, nb = a, b
+            movidos += (abs(na - a) > 0.005) + (abs(nb - b) > 0.005)
+            encaixados.append((na, nb))
+        cortes = encaixados
+        print(f"   {movidos} de {len(cortes)*2} fronteiras deslizadas para o vale")
+    else:
+        print("   ⚠️  nao consegui medir a energia; cortando nas fronteiras do ASR")
+
+    faixas = []
+    for a, b in cortes:
+        faixas += ["--cut-out", f"{a:.2f}sec,{b:.2f}sec"]
 
     tmp_dir = saida.parent / "_tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)

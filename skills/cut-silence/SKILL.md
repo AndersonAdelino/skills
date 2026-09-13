@@ -208,7 +208,29 @@ Whisper-family models hallucinate "Obrigado" over silent stretches in PT. If you
 
 - **Fillers** — parasitic sound that can leave without changing meaning: "né", "hum", "ahn", hesitant "é é é", "tipo" meaning "sort of" (not the category sense), confirmation "tá?" at the end of a sentence. **Never cut** vocatives the speaker aims at the audience (`pessoal`, `galera`, `gente`), connectives that carry reasoning (`então`, `aí`, `olha`, `bom`, `agora`), or any word whose removal breaks the sentence. When in doubt, keep it — a stray "né" is cheap; a missing subject ruins the take.
 - **Stutters** — the `gagueiras` list. Already precise; just sanity-check a few.
-- **Duplicates** — the `duplicatas` list. **Confirm each one by reading the text**, because these cuts are long. A genuine restart is the speaker abandoning a take and redoing it. A deliberate recap, a returning topic, or a catchphrase the speaker always uses is *not* a duplicate and must stay.
+- **Duplicates** — the `duplicatas` list. **Confirm each one by reading the text**, because these cuts are long.
+
+**The test that separates a restart from legitimate repetition:**
+
+> **Does the second version add information, or say the same thing better?**
+>
+> - Adds information → **anaphora**, deliberate rhetoric. Keep both.
+> - Same information, better said → **restart**. Cut the first.
+
+A real miss from applying intuition instead of this rule:
+
+```
+"...quanto mais antigo for o seu perfil, melhor."            ┐ same information
+"...quanto mais antigo for esse perfil, melhor para sua      ┘ → RESTART, cut the first
+   estrutura."
+"...quanto mais antigo for esse perfil, mais credibilidade     → new information
+   você vai ter na meta."                                      → ANAPHORA, keep
+
+```
+Three parallel sentences were read as one rhetorical block and all kept; only the
+third one earned it.
+
+**Record a decision for every candidate, and build the ranges from those records — never type a second list alongside your analysis.** Two genuine restarts were spotted while reading a transcript and then simply left out of the cut list. Nothing catches that but structure.
 
 #### 4) Show the grouped report and WAIT for approval
 
@@ -366,6 +388,27 @@ The skill is single-video at heart. When the user hands you a folder:
 **Resume by duration, never by existence.** A leftover `<name>_edited.mp4` may be a truncated file from an interrupted run — a real batch left one with no `moov` atom, and a naive "the file exists, skip it" would have shipped it. Probe each existing output: if `ffprobe` can't read a duration, or the duration is implausible against the source, redo it.
 
 Before resuming, delete orphaned `pre_*` and `cache_*` from the interrupted run.
+
+### 7d. After `--fillers`: verify the cuts actually landed
+
+**Only after the `--fillers` path.** Transcribe the *output* and check your own work:
+
+```bash
+python "<SKILL-FOLDER>/scripts/remove-fillers.py" "<OUTPUT>/<name>_edited.mp4" --json "<verify>.json"
+```
+
+Two checks, both mechanical:
+
+| Check | How | If it fails |
+|---|---|---|
+| Did the fillers go? | Count the filler tokens you cut ("ok", "está"…) in the output text | A survivor means that cut didn't land — usually a very short word |
+| Did the restarts go? | Re-run the analysis; compare the duplicate candidates against the ones you accepted | An accepted restart still showing up means its range was wrong |
+
+This costs one more transcription (a few cents) and is the difference between
+"I cut it" and "it is cut". On a real video the skill reported success while
+three of its own cuts had not landed — the user found them by watching.
+
+**Report what survived.** Do not claim a clean cut you did not verify.
 
 ### 8. Report the result
 
