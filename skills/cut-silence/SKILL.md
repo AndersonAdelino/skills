@@ -408,6 +408,24 @@ This costs one more transcription (a few cents) and is the difference between
 "I cut it" and "it is cut". On a real video the skill reported success while
 three of its own cuts had not landed — the user found them by watching.
 
+**Cross-reference against your decision table, or the result is unreadable.**
+A verification run on a clean edit still reported one surviving filler and three
+surviving duplicates. All four were correct:
+
+| Survivor | Why it's there |
+|---|---|
+| `"Ok,"` opening a sentence | Deliberately kept — a connective, not a confirmation tag |
+| 2 duplicate candidates | Both marked *rejected* in the decision table |
+| 1 duplicate candidate | **Did not exist before the edit** |
+
+That last one matters: **cutting creates new candidates.** Removing a filler
+glues together two stretches that were apart, and the detector then sees a
+similarity that wasn't there. Not a bug — a consequence of changing the timeline.
+
+So a raw count is alarming and meaningless. Report each survivor as *kept on
+purpose*, *rejected earlier*, *newly created by the edit*, or ***failed to
+land*** — and only the last one is a problem.
+
 **Report what survived.** Do not claim a clean cut you did not verify.
 
 ### 8. Report the result
