@@ -1,8 +1,45 @@
 # cut-silence
 
-Cuts the pauses out of talking-head video and normalizes the audio. In default mode it runs **offline and free**: just `auto-editor` and `ffmpeg`, no API, no upload.
+**The dead air, the "ums", the takes you restarted — gone. And the cuts land where an editor would put them.**
 
-With the `--fillers` flag it also removes filler words, stutters, and **duplicate takes** — where you err, stop, and redo a segment from the top. That mode costs a few cents of API to transcribe; the judging happens in your agent, so nothing is cut without you seeing it first.
+Point it at a talking-head video. It removes the silence, and on request the filler words, the stutters, and the moments you flubbed a line and started the sentence over. Default mode runs **offline and free** — no API, no upload, your footage never leaves the machine.
+
+```
+12.2 min  ─────────────────────────────────────►  9.0 min
+          silence · 13 "ok?" · 3 stutters · 11 restarts
+```
+
+## Why the cuts don't sound cut
+
+Most auto-editors ask *what* to remove. The hard part is *where the scissors touch*.
+
+A transcription model says "the word ends at 149.20s". That is an **estimate**. Miss by three hundredths and you leave a shard of the word behind — the classic robotic stutter of automated editing. One real `"ok?"` in our test footage was **0.16 seconds long**: about ten frames. There is no room for error at that size.
+
+So this skill doesn't trust the timestamp. It looks at the **waveform**.
+
+```
+          the ASR says the word ends here
+                        │
+                        ▼
+   ▁▂▅█▇█▅▃▂▁▁▁▂▄▇█▇▅▃▂▁▁▁▁▁▂▃▅█▇█▆▄▂▁
+   └──── "ativos" ────┘   └─ "ok?" ─┘ └── "É a mesma..." ──┘
+                            ▲      ▲
+                            │      └── and here
+                     cut here ──────┘
+                     ( the valley — where the sound actually stops )
+```
+
+Every cut boundary slides up to **150 ms** to land on the point of lowest energy nearby. Not where a model *thinks* the word ended — where the audio is genuinely quiet.
+
+That is what a human editor does, and it is why the splices don't click, clip, or chop a syllable in half.
+
+## It checks its own work
+
+Cutting is easy. Knowing the cut *landed* is the part everyone skips.
+
+After editing, the skill **transcribes the result and reads it back**: did those 13 `"ok?"` actually disappear? Did the restarted take really go? Anything that survived gets reported — instead of a green checkmark over a file nobody verified.
+
+Same for the numbers. Duration, percentage, loudness, peak: all **measured on the delivered file**, never copied from the command that asked for them.
 
 <!-- TODO: before/after demo GIF goes here.
      Record one pass of the skill on a real video and drop the file in this folder:
@@ -116,9 +153,12 @@ Three guarantees the skill takes seriously:
 
 ## What comes out the other side
 
-- Silence and pauses removed (`--edit audio:threshold=4%`, with `0.2s` of breathing room at the edges)
-- Audio normalized to **-14 LUFS** with a peak ceiling at **-1.0 dBTP**, via **linear** EBU R128 loudness — raises quiet audio without clipping and **without a compressor**, so the dynamics of the voice stay intact
-- Video not re-encoded during the normalization step (`-c:v copy`)
+- Silence and pauses removed, with every boundary snapped to the waveform valley
+- Audio at **-14 LUFS** — the YouTube reference, not the podcast one. YouTube only ever turns loud uploads *down*; ship quieter than -14 and you play quieter than everything around you, forever
+- Peak ceiling **-1.0 dBTP** via linear gain plus a limiter. The limiter shaves transients (mouse clicks, keyboard) — **the dynamics of your voice are never compressed**
+- The loudness is **measured on the delivered file**. If it lands more than 1 LU off target, the skill says so instead of repeating the number it asked for
+- Video never re-encoded during normalization (`-c:v copy`)
+- **Your original is never touched.** Output goes to a separate folder, always
 
 ## Adjustments worth making
 
@@ -174,11 +214,19 @@ The API only transcribes. **Everything that requires judgment happens in your ag
       │──────────────────────────────────────────────────────────────────►   │
                              │◄──────── approved cuts ──────────────────────  │
                              │
+                    snap every boundary to
+                    the waveform valley
+                             │
                     auto-editor: silence + cuts
-                    ffmpeg-normalize: -14 LUFS
+                    gain + limiter → -14 LUFS
+                             │
+                    measure the result, report
+                    what it actually is
                              │
                              ▼
                       video_edited.mp4
+                             │
+      │◄──── "these cuts landed, these didn't" ◄─ transcribe it back ───────  │
 ```
 
 **Nothing is cut without your approval.** The report groups cuts by type, with counts, and for duplicates it prints the full text of what leaves and what stays — you can't approve a 5-second cut from a timestamp alone.
@@ -189,9 +237,39 @@ The API only transcribes. **Everything that requires judgment happens in your ag
 |---|---|---|
 | **Filler** | Parasitic sound that leaves without changing meaning | "e aí **né** a gente vai" |
 | **Stutter** | Word repeated glued to itself | "hoje **hoje** eu vou falar" |
-| **Duplicate** | Abandoned take — the speaker erred, stopped, and redid the segment from the top | "Fala pessoal, hoje eu vou…" → *(pause)* → "Olá pessoal, Anderson aqui" |
+| **Duplicate** | Abandoned take — you erred, stopped, and redid the segment from the top | "Fala pessoal, hoje eu vou…" → *(pause)* → "Olá pessoal, Anderson aqui" |
 
-Stutters and duplicates are found mechanically (free, deterministic, unit-tested). Duplicate detection is anchored on **pauses**: people stop before they restart, so a word not preceded by a ≥0.35s pause can't begin a new take. That anchor is what keeps it from flagging every sentence that happens to end the same way.
+That third one is the one other tools don't have, and it's the one that saves the most time.
+
+### How it finds a restart
+
+Searching for repeated text doesn't work. Watch:
+
+```
+   "Fala pessoal,  hoje eu vou falar…"   ▏ ONE word in common
+   "Olá  pessoal,  Anderson aqui"        ▏ → needs a SHORT comparison
+
+   "Ok,    parece muita coisa mas não é" ▏ FIRST word differs
+   "Certo, parece muita coisa mas não é" ▏ → needs a LONG one
+```
+
+Compare two words and the second case scores 0.74 and slips past. Compare six and the first never matches at all. **No fixed size works**, which is why so few tools attempt this.
+
+So it starts somewhere else — **the pause**:
+
+```
+   ────speech────  ▎ silence ▎  ────speech────
+                   └─ 0.35s ─┘
+                        ▲
+        nobody restarts without stopping first
+```
+
+Only a word preceded by real silence can begin a new take. From each of those points it looks backwards at four different comparison lengths and keeps the best match. The pause anchor is what lets the comparison be short without flagging every sentence that happens to end the same way.
+
+Then **you** decide. Each candidate is shown with the full text of what leaves and what stays, because a five-second cut can't be approved from a timestamp. The rule the skill applies:
+
+> Second version **adds information** → deliberate emphasis, keep both.
+> Second version **says the same thing better** → restart, cut the first.
 
 ### Transcription model and cost
 
@@ -251,10 +329,15 @@ Non-Portuguese `--fillers` is usable but unpolished until those are parameterize
 
 ## Known limits
 
-- Transcription is still pinned to `language: pt`; other languages need that made configurable
-- ASR models hallucinate "Obrigado" over silent stretches in PT. Since those land on silence, which `--edit` removes anyway, they're harmless
-- Duplicate detection needs a real pause before the restart. A speaker who redoes a line without stopping won't be caught
-- Duplicate detection is deliberately permissive and **will propose false positives**; the agent filters them by reading the text before anything reaches you. A restart longer than 15s is rejected outright — nobody rambles for half a minute, notices, and starts over
+Stated plainly, because every one of these was found the hard way:
+
+- Transcription is pinned to `language: pt`; other languages need that made configurable
+- ASR models hallucinate "Obrigado" over silent stretches in PT. Those land on silence the cut removes anyway, so they're harmless
+- Duplicate detection needs a **real pause** before the restart. Someone who redoes a line without stopping won't be caught
+- It's deliberately permissive and **will propose false positives** — that's the design. Recall is mechanical and free; precision comes from you reading the text before anything is applied. A restart longer than 15s is rejected outright: nobody rambles for half a minute, notices, and starts over
+- Restarts with **no repeated words at all** ("…deixa eu explicar de outro jeito") aren't detected yet
+- Breaths are treated as sound, not as a separate thing to remove
+- Cut points are chosen from the audio only. If you're on camera, a cut can still land mid-gesture
 - `--video-codec copy` / `--audio-codec copy` don't exist in `auto-editor` 29.x (they raise `Unknown encoder: copy`)
 - Running two `auto-editor` processes in parallel without separate `--temp-dir`s corrupts the output
 - Each video needs ~2.3x its own size free on disk during processing
