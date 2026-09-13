@@ -133,6 +133,8 @@ RESPIRO_TOPICO  = 0.60      # apos fim de frase seguido de pausa longa
 PAUSA_TOPICO    = 0.80      # a partir daqui, o locutor mudou de assunto
 FIM_DE_FRASE    = ".?!"
 
+RAM_MINIMA_MB = 1800        # abaixo disso o encode costuma nem iniciar
+
 CORTE_SUSPEITO_PCT = 0.70   # acima disso o corte comeu fala, nao silencio
 CORTE_IRRELEVANTE_PCT = 0.02  # abaixo disso nao valeu o re-encode
 
@@ -250,6 +252,58 @@ def extract_chunk(origem: Path, destino: Path, inicio: float, duracao: float):
     subprocess.run(["ffmpeg", "-y", "-i", str(origem), "-ss", str(inicio),
                     "-t", str(duracao), "-acodec", "copy", str(destino)],
                    check=True, capture_output=True)
+
+
+def ram_livre_mb():
+    """MB de RAM disponivel, ou None se nao der para medir nesta plataforma."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class _Mem(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+            ms = _Mem()
+            ms.dwLength = ctypes.sizeof(_Mem)
+            if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+                return None
+            return ms.ullAvailPhys / 1_048_576
+        meminfo = Path("/proc/meminfo")
+        if meminfo.exists():
+            for linha in meminfo.read_text().splitlines():
+                if linha.startswith("MemAvailable:"):
+                    return int(linha.split()[1]) / 1024
+    except Exception:                       # noqa: BLE001 — medir RAM nunca pode quebrar o corte
+        return None
+    return None
+
+
+def aviso_de_ram():
+    """Avisa se a RAM livre nao comporta o encode. Devolve o aviso, ou None.
+
+    Caso real: com 1.27 GB livres, o ffmpeg nem chegou a abrir — o Windows
+    devolveu "WinError 8: nao ha recursos de memoria suficientes", que ninguem
+    liga a "feche o Chrome". O filtro loudnorm tambem ja derrubou um video de um
+    lote pelo mesmo motivo. Aviso, nao bloqueio: a estimativa e grosseira e a
+    decisao e do usuario.
+    """
+    livre = ram_livre_mb()
+    if livre is None or livre >= RAM_MINIMA_MB:
+        return None
+    return (f"apenas {livre/1024:.1f} GB de RAM livre (o encode costuma pedir "
+            f"~{RAM_MINIMA_MB/1024:.1f} GB).\n"
+            "   Feche o navegador e outros programas pesados, ou o ffmpeg pode\n"
+            "   nem conseguir iniciar. Confira tambem se sobrou algum auto-editor\n"
+            "   de uma execucao interrompida: parar a tarefa mata o terminal mas\n"
+            "   deixa o processo filho vivo, segurando a memoria.")
 
 
 def ganho_para_alvo(medido_lufs: float, alvo: float = ALVO_LUFS) -> float:
@@ -587,6 +641,12 @@ def autoteste():
                   if not any(a < cb and b > ca for ca, cb in cortes_t)]
     assert sobrevivem == [(5.0, 5.4), (15.0, 15.4)], sobrevivem
 
+    # ── RAM ──────────────────────────────────────────────────────────────────
+    # medir nunca pode quebrar o corte; nao sabendo medir, segue sem avisar
+    livre = ram_livre_mb()
+    assert livre is None or livre > 0, livre
+    assert aviso_de_ram() is None or isinstance(aviso_de_ram(), str)
+
     # ── ganho para o alvo ────────────────────────────────────────────────────
     # o 001 do lote real estava a -44.4 LUFS, alvo -14: ~30 dB mais a margem
     assert ganho_para_alvo(-44.4) == 30.9, ganho_para_alvo(-44.4)
@@ -695,6 +755,10 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     # mesmo arquivo, os quadros acima do limiar foram de 0,8% para 81,5%).
     # Custa duas passagens de audio; o encode de video continua sendo um so,
     # porque ffmpeg-normalize copia o video (-c:v copy).
+    aviso = aviso_de_ram()
+    if aviso:
+        print(f"⚠️  {aviso}", flush=True)
+
     print("🔊 nivelando audio antes de cortar...", flush=True)
     lufs_pre, _ = normalizar(video, pre)
     if lufs_pre is None:
