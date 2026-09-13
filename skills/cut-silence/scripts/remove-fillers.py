@@ -319,19 +319,37 @@ def medir_loudness(caminho: Path):
     parametro que pedimos ao ffmpeg: num lote real, 18 aulas foram reportadas
     como "-14 LUFS" porque -14 era o que estava no comando, enquanto os arquivos
     estavam entre -17.8 e -27.1. O comando pede; so a medicao sabe.
+
+    Falhando, EXPLICA. Uma versao anterior devolvia (None, None) em silencio, o
+    chamador fazia sys.exit(1), e o usuario via o processo terminar sem uma
+    palavra — pior que um traceback, porque nao da nem o que pesquisar.
     """
-    r = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(caminho),
-         "-af", "loudnorm=print_format=json", "-f", "null", "-"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    m = re.search(r'\{[^{}]*"input_i"[\s\S]*?\}', (r.stderr or "") + (r.stdout or ""))
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-i", str(caminho),
+             "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+    except OSError as e:
+        # WinError 8 cai aqui: nao havia memoria nem para criar o processo
+        print(f"   ⚠️  nao consegui iniciar o ffmpeg: {e}")
+        aviso = aviso_de_ram()
+        if aviso:
+            print(f"   ⚠️  {aviso}")
+        return None, None
+
+    saida_ff = (r.stderr or "") + (r.stdout or "")
+    m = re.search(r'\{[^{}]*"input_i"[\s\S]*?\}', saida_ff)
     if not m:
+        print(f"   ⚠️  o ffmpeg nao devolveu a medicao de loudness "
+              f"(codigo {r.returncode}):")
+        print("      " + (saida_ff.strip()[-500:] or "(sem saida)"))
         return None, None
     try:
         d = json.loads(m.group(0))
         return float(d["input_i"]), float(d["input_tp"])
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+        print(f"   ⚠️  medicao de loudness ilegivel: {e}")
         return None, None
 
 
@@ -343,6 +361,7 @@ def normalizar(entrada: Path, saida: Path, alvo: float = ALVO_LUFS) -> tuple:
     """
     medido, _ = medir_loudness(entrada)
     if medido is None:
+        print(f"   ⚠️  sem medicao de entrada, nao da para calcular o ganho")
         return None, None
     ganho = ganho_para_alvo(medido, alvo)
     filtro = f"volume={ganho}dB,alimiter=limit={TETO_LINEAR}:level=0"
@@ -762,6 +781,7 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     print("🔊 nivelando audio antes de cortar...", flush=True)
     lufs_pre, _ = normalizar(video, pre)
     if lufs_pre is None:
+        print("\n❌ Nao consegui nivelar o audio de entrada. Nada foi cortado.")
         sys.exit(1)
     print(f"   entrada nivelada: {lufs_pre:.1f} LUFS", flush=True)
 
