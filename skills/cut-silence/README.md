@@ -33,6 +33,30 @@ Every cut boundary slides up to **150 ms** to land on the point of lowest energy
 
 That is what a human editor does, and it is why the splices don't click, clip, or chop a syllable in half.
 
+## It doesn't cut the same everywhere
+
+Every other tool gives you **one** tightness setting for the whole video. But nobody edits that way:
+
+```
+   ┌─ inside a sentence ──────────┐   almost no air
+   │  "…um perfil no Facebook▏que ▏que é importante…"
+   └──────────────────────────────┘
+
+   ┌─ between sentences ──────────┐   the pause IS the punctuation
+   │  "…melhor para você.▏▏▏ Então prioriza…"
+   └──────────────────────────────┘
+
+   ┌─ new topic ──────────────────┐   the pause IS the paragraph
+   │  "…você já vai entender.▏▏▏▏▏▏ Vou abrir aqui…"
+   └──────────────────────────────┘
+```
+
+Tight everywhere and a lesson gets chopped into pieces. Loose everywhere and it drags.
+
+The transcript knows where sentences end — words come back punctuated. So the skill cuts tight *inside* sentences and **hands the air back at the boundaries**, using a longer pause where the speaker turns to a new subject.
+
+On a real 12-minute lesson: **61 breathing points preserved, 31 of them topic turns.** Thirty-one places where a single number would have been wrong.
+
 ## It checks its own work
 
 Cutting is easy. Knowing the cut *landed* is the part everyone skips.

@@ -2,9 +2,9 @@
 
 Claude Code skills, battle-tested in my own content production workflow (YouTube, Instagram, video scripting).
 
-[![skills.sh](https://skills.sh/b/AndersonAdelino/skills)](https://skills.sh/AndersonAdelino/skills)
+[![skills.sh](https://www.skills.sh/b/AndersonAdelino/skills)](https://www.skills.sh/AndersonAdelino/skills)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![YouTube](https://img.shields.io/badge/YouTube-Anderson%20Adelino-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@oandersonadelino?sub_confirmation=1)
+[![YouTube](https://img.shields.io/badge/YouTube-Anderson%20Adelino%20%C2%B7%209.1K-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@oandersonadelino?sub_confirmation=1)
 
 ## Install
 

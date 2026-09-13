@@ -116,6 +116,25 @@ PAD_CORTE_S = 0.06          # folga no corte de palavra; ver faixa_palavra()
 JANELA_SNAP_S = 0.15        # quanto a fronteira pode deslizar, para cada lado
 PASSO_RMS_S   = 0.01        # resolucao da curva de energia
 
+# ── respiro variavel ─────────────────────────────────────────────────────────
+# Uma margem unica para o video inteiro nao existe na edicao de verdade. Editor
+# nenhum corta igual em todo lugar:
+#
+#   dentro da frase       quase nada        e so respiracao entre palavras
+#   entre duas frases     um pouco          a pausa e a pontuacao
+#   virada de assunto     bastante          a pausa E o paragrafo
+#
+# Margem apertada no video todo picota a aula (0.1s deixou o usuario com
+# "corte no meio da conversa"); margem larga no video todo deixa arrastado.
+#
+# A transcricao ja sabe onde cada frase acaba: a palavra vem pontuada ("agora?",
+# "coisas."). Entao a margem base fica apertada e estes respiros sao devolvidos
+# so nas fronteiras, via --add-in do auto-editor.
+RESPIRO_FRASE   = 0.35      # apos . ? !
+RESPIRO_TOPICO  = 0.60      # apos fim de frase seguido de pausa longa
+PAUSA_TOPICO    = 0.80      # a partir daqui, o locutor mudou de assunto
+FIM_DE_FRASE    = ".?!"
+
 CORTE_SUSPEITO_PCT = 0.70   # acima disso o corte comeu fala, nao silencio
 CORTE_IRRELEVANTE_PCT = 0.02  # abaixo disso nao valeu o re-encode
 
@@ -361,6 +380,33 @@ def achar_gagueiras(words: list) -> list:
 
 
 # ── deteccao de duplicata / recomeco de take ─────────────────────────────────
+
+def respiros(words: list, base_s: float,
+             frase_s: float = RESPIRO_FRASE,
+             topico_s: float = RESPIRO_TOPICO,
+             pausa_topico: float = PAUSA_TOPICO) -> list:
+    """Faixas de silencio a PRESERVAR alem da margem base.
+
+    Devolve [(inicio, fim), ...] para passar ao --add-in do auto-editor. Cada
+    faixa cobre a pausa depois de um fim de frase, ate o respiro que aquela
+    fronteira merece — e nunca alem do silencio que existe ali.
+
+    A margem base continua cuidando do que acontece dentro da frase; isto so
+    devolve ar onde a fala realmente termina um pensamento.
+    """
+    faixas = []
+    for i, p in enumerate(words[:-1]):
+        if not p["word"].strip().rstrip('"\')').endswith(tuple(FIM_DE_FRASE)):
+            continue
+        vao = words[i + 1]["start"] - p["end"]
+        if vao <= base_s:
+            continue                       # a margem base ja cobre essa pausa
+        alvo = topico_s if vao >= pausa_topico else frase_s
+        guardar = min(alvo, vao)
+        if guardar > base_s:
+            faixas.append((round(p["end"], 2), round(p["end"] + guardar, 2)))
+    return faixas
+
 
 def curva_rms(video: Path, passo_s: float = PASSO_RMS_S) -> list:
     """Energia (RMS) do audio, uma amostra a cada `passo_s`. [] se falhar.
@@ -776,6 +822,34 @@ def autoteste():
     dois[52] = 2.0
     assert encaixar_no_vale(dois, 0.50) == 0.52, encaixar_no_vale(dois, 0.50)
 
+    # ── respiro variavel ─────────────────────────────────────────────────────
+    # meio de frase nao ganha respiro: nao termina em pontuacao
+    meio = [w("vou", 0.0, 0.3), w("falar", 0.5, 0.9), w("sobre", 1.6, 2.0)]
+    assert respiros(meio, 0.1) == [], respiros(meio, 0.1)
+
+    # silencio menor que o respiro: guarda o silencio que existe, nao inventa ar
+    frase = [w("coisas.", 0.0, 0.3), w("Primeiro", 0.5, 0.9)]
+    assert respiros(frase, 0.1) == [(0.3, 0.5)], respiros(frase, 0.1)
+
+    # silencio de sobra: guarda o respiro de frase inteiro (0.35), nao tudo
+    folga = [w("coisas.", 0.0, 0.3), w("Primeiro", 0.75, 1.15)]
+    assert respiros(folga, 0.1) == [(0.3, 0.65)], respiros(folga, 0.1)
+    assert folga[1]["start"] - folga[0]["end"] < PAUSA_TOPICO   # ainda nao e topico
+
+    # pausa longa = virada de assunto -> respiro maior (0.60)
+    topico = [w("entender.", 0.0, 0.3), w("Agora", 1.4, 1.8)]
+    assert respiros(topico, 0.1) == [(0.3, 0.9)], respiros(topico, 0.1)
+    assert topico[1]["start"] - topico[0]["end"] >= PAUSA_TOPICO
+
+    # pausa que a margem base ja cobre nao vira --add-in redundante
+    curta = [w("coisas.", 0.0, 0.3), w("Primeiro", 0.35, 0.7)]
+    assert respiros(curta, 0.1) == [], respiros(curta, 0.1)
+
+    # interrogacao e exclamacao contam como fim de frase; virgula nao
+    for fim, esperado in [("agora?", 1), ("agora!", 1), ("agora,", 0), ("agora", 0)]:
+        t = [w(fim, 0.0, 0.3), w("Talvez", 1.5, 1.9)]
+        assert len(respiros(t, 0.1)) == esperado, (fim, respiros(t, 0.1))
+
     # sem pausa nenhuma nao ha recomeco: fala corrida e fala corrida. Este teste
     # trava a ancora de pausa — tirando ela, a busca por texto sozinha volta a
     # inventar fronteira no meio da frase.
@@ -889,6 +963,15 @@ def aplicar(video: Path, dados: Path, saida: Path, margin: str = "0.2s"):
     faixas = []
     for a, b in cortes:
         faixas += ["--cut-out", f"{a:.2f}sec,{b:.2f}sec"]
+
+    # respiros vem prontos no JSON (quem tem a transcricao e quem os calcula).
+    # --add-in preserva a faixa, entao a margem base pode ser apertada sem
+    # colar as frases umas nas outras.
+    ar = info.get("respiros") or []
+    for a, b in ar:
+        faixas += ["--add-in", f"{a:.2f}sec,{b:.2f}sec"]
+    if ar:
+        print(f"🌬️  {len(ar)} respiro(s) preservados nas viradas de frase", flush=True)
 
     tmp_dir = saida.parent / "_tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)

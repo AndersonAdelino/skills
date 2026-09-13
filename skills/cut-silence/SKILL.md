@@ -174,6 +174,30 @@ When in doubt between the two, ask whether it's an ad or long-form content. If t
 
 These are starting points on a continuous knob, not fixed presets: any value in between is valid. If the user names a number, use theirs.
 
+#### Better than one margin: variable breathing room (`--fillers` only)
+
+A single margin for the whole video isn't how editing works. Nobody cuts the same everywhere:
+
+| Where | How much air |
+|---|---|
+| Inside a sentence | almost none — it's just breath between words |
+| Between two sentences | some — **the pause is the punctuation** |
+| Turning to a new topic | plenty — the pause *is* the paragraph |
+
+Tight everywhere chopped a lesson into pieces (`0.1s` produced "cuts in the middle of the conversation"). Loose everywhere drags.
+
+When you have a transcript, you know where sentences end — the words come punctuated (`agora?`, `coisas.`). So use a **tight base margin** and hand the air back only at the boundaries:
+
+```python
+respiros(words, base_s=0.1)   # → [(start, end), ...] silence to preserve
+```
+
+Put the result in the cuts JSON under `"respiros"`, next to `"cortes"`. `--aplicar` passes them to auto-editor as `--add-in`, which keeps those stretches intact.
+
+On a real 12-minute lesson: **61 breathing ranges, 23.6s of air preserved, 31 of them topic turns.** That is 31 places where a single number would have been wrong in one direction or the other.
+
+Pair it with `--margin 0.1s`. The base handles inside-sentence; `respiros` handles structure.
+
 After running, delete the cache folder: `rm -rf "<OUTPUT>/_tmp/cache_<base-name>"`.
 
 > **Note:** The `--video-codec copy` and `--audio-codec copy` flags are **not supported** in auto-editor 29.x (they raise `Unknown encoder: copy`). Don't try to use them. auto-editor keeps quality close to the original with its default codec (h264+aac).
