@@ -102,6 +102,8 @@ PAUSA_RECOMECO     = 0.35   # so palavra precedida de pausa comeca take nova
 # desqualifica as maiores — era essa trava que engolia recomeco comecando em
 # palavra funcional ("O que...", 4 chars).
 SONDAS_DUPLICATA = (2, 3, 4, 6)
+EMPATE_SONDA        = 0.08  # dentro disso e empate: ganha o comeco mais cedo
+RECUO_MAX_PALAVRAS  = 4     # ate onde o empate pode recuar o inicio da take
 
 PAD_CORTE_S = 0.06          # folga no corte de palavra; ver faixa_palavra()
 
@@ -522,7 +524,7 @@ def achar_duplicatas(words: list,
             continue
         if words[j]["start"] - words[j - 1]["end"] < pausa_min:
             continue                                # sem pausa, nao e recomeco
-        melhor = None
+        achou = []
         for tam in sondas:
             if j + tam > n:
                 continue
@@ -538,21 +540,39 @@ def achar_duplicatas(words: list,
                 if len(alvo) < MIN_CHARS_SONDA:
                     continue
                 r = difflib.SequenceMatcher(None, sonda, alvo).ratio()
-                if r >= limiar and (melhor is None or r > melhor[1]):
-                    melhor = (i, r)
+                if r >= limiar:
+                    achou.append((i, r))
+        melhor = None
+        if achou:
+            # ENTRE QUASE-EMPATADOS, COMECAR PELO MAIS CEDO.
+            # A take abandonada comeca onde ela comeca; casar no meio dela deixa
+            # um toco colado na take boa. Caso real: "O que que eu nao recomendo
+            # ... O que eu nao recomendo" casou em "que" (137) e nao em "O" (135),
+            # entao sobrou "O que" antes do recomeco e o usuario ouviu
+            # "O que... O que eu nao recomendo". Cortar um pouco a mais e
+            # sempre melhor que deixar um toco.
+            teto = max(r for _, r in achou)
+            bons = {i for i, r in achou if r >= teto - EMPATE_SONDA}
+            # Recuar para o inicio da take e so para nao deixar toco — sao duas,
+            # tres palavras. Sem limite, uma frase comum repetida muito antes
+            # ("se voce for fazer") tambem casa 1.0, vence por ser mais cedo, e
+            # leva o corte a 88 segundos. O recuo fica preso perto do casamento
+            # mais proximo do recomeco.
+            alvo = max(bons)
+            perto = sorted(i for i in bons
+                           if alvo - i <= RECUO_MAX_PALAVRAS and i >= ultimo_fim)
+            # Do mais cedo para o mais tarde, fica o primeiro que couber no teto
+            # de duracao. Parar no primeiro que nao couber joga fora recomeco bom.
+            for cand in perto:
+                dur = words[j]["start"] - words[cand]["start"]
+                if dur <= max_span_s:
+                    melhor = (cand, max(r for k, r in achou if k == cand), dur)
+                    break
         if melhor:
-            i, r = melhor
-            # Dois pontos de recomeco podem casar com a MESMA origem (o texto se
-            # repete tres vezes), e aí as duas faixas se sobrepoem. Sobreposicao
-            # vira corte maior do que qualquer uma das duas propunha, entao a
-            # segunda e descartada.
-            if i < ultimo_fim:
-                continue
-            dur = words[j]["start"] - words[i]["start"]
-            if dur <= max_span_s:
-                achados.append({"ini": i, "fim": j - 1, "eco": j,
-                                "score": round(r, 2), "dur_s": round(dur, 2)})
-                ultimo_fim = j
+            i, r, dur = melhor
+            achados.append({"ini": i, "fim": j - 1, "eco": j,
+                            "score": round(r, 2), "dur_s": round(dur, 2)})
+            ultimo_fim = j
     return achados
 
 
@@ -785,7 +805,33 @@ def autoteste():
     base = 5 * 0.4 + 0.3 + 0.9
     for k, t in enumerate(["o", "que", "eu", "nao", "recomendo", "mas"]):
         curto.append(w(t, base + k * 0.4, base + k * 0.4 + 0.3))
-    assert achar_duplicatas(curto), "recomeco em palavra funcional curta foi perdido"
+    achados = achar_duplicatas(curto)
+    assert achados, "recomeco em palavra funcional curta foi perdido"
+
+    # ...e tem que comecar no PRIMEIRO "o", nao no meio da take abandonada.
+    # Casando em 137 em vez de 135, o corte deixava "O que" colado no recomeco e
+    # o usuario ouvia "O que... O que eu nao recomendo". Cortar um pouco a mais
+    # e sempre melhor que deixar um toco.
+    assert achados[0]["ini"] == 0, achados[0]
+
+    # REGRESSAO: tres takes seguidas. O segundo recomeco casa melhor com a
+    # PRIMEIRA take, mas essa ja foi cortada. Preferir o inicio mais cedo nao
+    # pode fazer o ponto inteiro cair fora — tem que recuar para a alternativa
+    # valida. Descartar o ponto custou tres recomecos bons num teste real.
+    tres_takes = []
+    t = 0.0
+    for grupo in (["quanto", "mais", "antigo", "melhor"],
+                  ["quanto", "mais", "antigo", "melhor", "para", "estrutura"],
+                  ["quanto", "mais", "antigo", "melhor", "com", "credibilidade"]):
+        t += 0.9                                   # pausa marcando o recomeco
+        for palavra in grupo:
+            tres_takes.append(w(palavra, t, t + 0.3))
+            t += 0.4
+    achados = achar_duplicatas(tres_takes)
+    assert len(achados) == 2, achados
+    assert achados[0]["ini"] == 0, achados[0]      # 1a take sai inteira
+    assert achados[1]["ini"] == 4, achados[1]      # 2a recua, nao some
+    assert achados[1]["ini"] > achados[0]["fim"], "as faixas se sobrepoem"
 
     # folga no corte, com os tempos reais do "ok?" de 0.16s do ACEBBOK-02.
     # Atras ele esta colado em "ativos" (silencio zero), entao nao avanca nada.
