@@ -26,7 +26,25 @@ skills/<name>/scripts/          its scripts, self-contained
 README.md                       one row per skill in the table
 ```
 
+Flat, one folder per skill. **Don't nest them under `ready/` and `wip/`** — the
+installer scans recursively and finds a skill wherever it sits, so the folder
+hides nothing (tested: a skill under `skills/wip/` installs just fine). All it
+would buy is a path change the day a skill graduates, breaking its `plugin.json`
+entry, its README link, and the install of anyone who already had it.
+
+## Is a skill ready?
+
+**`plugin.json` is the manifest of what ships.** A skill missing from its `skills`
+array is not finished, whatever state its folder is in. That is the signal to read
+before deciding whether to commit, publish, or announce something — and it is the
+only one that is both explicit and machine-readable.
+
+What actually keeps unfinished work out of people's hands is the branch: anything
+unmerged simply isn't in the repo they install from. The manifest says *ready*;
+the branch is what *enforces* it.
+
 A new skill touches three places: its folder, `plugin.json`, the README table.
+Adding the `plugin.json` line is what declares it done — do it last, not first.
 
 ## Development loop
 
