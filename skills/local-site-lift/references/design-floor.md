@@ -12,22 +12,63 @@ site plano, sem contraste, com metade da tela vazia. Um agente lendo só
 python scripts/aferir.py dist/
 ```
 
-| | Mínimo | Por quê |
+Os limites saíram de **medir seis sites institucionais reais** que o cliente
+considera excelentes, não de teoria. A primeira versão deles foi inventada e
+reprovava 6 de 6.
+
+| | Mínimo | A referência mais discreta dos seis tem |
 |---|---|---|
-| `h1` no desktop | **3,5rem** (56px) | 2,5rem num monitor lê como subtítulo |
-| `h1` ÷ corpo | **2,6×**, mire 3× | abaixo disso não há hierarquia, só tamanhos parecidos |
-| Tamanhos de fonte | **no máximo 8**, cada um 12% maior que o anterior | 10 tamanhos com 7 entre 0,85 e 1,15rem é ruído, não escala |
-| Estados `:hover` | **4** | com 2 em 75 regras, nada responde ao cursor |
-| `transition` | **3** | troca seca de estado é o que mais denuncia amador |
-| Grade de várias colunas no desktop | **1** | sem isso o layout largo é a coluna do celular esticada |
-| `<footer>` | existe | site sem rodapé termina no ar |
+| Estados `:hover` | **12** | 16 — o site reprovado tinha **2** |
+| `transition` | **20** | 29 — o reprovado tinha **1** |
+| `box-shadow` | **8** | 10 — o reprovado tinha **1** |
+| Grade de várias colunas no desktop | **1** | todos têm, de 7 a 74 |
+
+Não é questão de gosto: é **ordem de grandeza**. Um site que responde ao cursor
+em 2 lugares e um que responde em 100 não estão na mesma categoria de produto.
 
 **Nunca ponha `max-width` em `ch` num título.** `h1 { max-width: 18ch }` foi o
 defeito central de um site real: o título quebrava em três linhas curtas e
-metade da tela ficava vazia ao lado. Título respira em largura, não em coluna
-de leitura. `ch` é para parágrafo.
+metade da tela ficava vazia ao lado. `ch` é para parágrafo.
+
+### O que NÃO medir
+
+Contar tamanhos de fonte no CSS **não mede nada**: os seis têm de 10 a 48,
+porque o arquivo traz tema e plugin inteiros. O mesmo vale para `<footer>` —
+4 dos 6 usam `<div class="footer">`. Tentei as duas checagens e as duas
+reprovavam todo mundo.
 
 Passar no chão não faz um site bonito. **Falhar garante um que parece barato.**
+
+## Seis referências, e o que copiar delas
+
+Sites institucionais brasileiros que o cliente considera excelentes. Abra pelo
+menos um antes de desenhar:
+
+- https://interprocess.com.br/
+- https://allserviceindustrial.com.br/
+- https://spaceclass.com.br/
+- http://savassiagronegocio.com.br/
+- https://pontualtecnologia.com.br/
+- https://megalihub.com.br/
+
+O que todos fazem, e que um site amador não faz:
+
+**Herói de duas colunas com peso real.** Texto de um lado, imagem do outro,
+cada um ocupando perto de metade da largura. Nada de coluna estreita à esquerda
+com a tela vazia à direita.
+
+**Título que domina a primeira tela.** Três linhas grandes, não um subtítulo
+tímido. No interprocess o `h1` ocupa metade da largura e quase um terço da
+altura visível.
+
+**Imagem composta, não solta.** Mockup sobreposto à foto, com sombra e
+recorte. O trabalho aparece na imagem, e é isso que faz parecer caro.
+
+**Ritmo entre seções.** Herói assimétrico, depois seção centrada, depois grade.
+O olho sabe onde uma acaba. Fundo alternado ajuda.
+
+**Algo flutuante e útil.** WhatsApp fixo, um vídeo curto de depoimento no
+canto. Dá sinal de vida sem atrapalhar.
 
 ## O desktop não é o celular esticado
 
@@ -65,23 +106,38 @@ Em `DESIGN.md` fixe:
 
 Revise o plano contra a lista de defaults abaixo. Se qualquer eixo livre caiu num default, troque e anote o porquê. Só então escreva HTML.
 
-## Defaults que denunciam site gerado
+## Técnica não é clichê: o que separa é a execução
 
-Evite estes looks quando o brief não pediu explicitamente:
+Esta lista já foi mais longa e proibia coisas que sites institucionais bons
+fazem o tempo todo. Conferido: o [interprocess.com.br](https://interprocess.com.br/)
+usa **eyebrow em caixa alta** ("TECNOLOGIA EM ONCOLOGIA") e **uma palavra do
+h1 em outra cor** ("Soluções *Especializadas*"), e funciona nos dois casos.
 
-- creme quente + serif + terracota
+O problema nunca foi a técnica. É usá-la **sem conteúdo**:
+
+| Ruim | Bom |
+|---|---|
+| eyebrow genérico: `SOLUÇÕES INOVADORAS` | eyebrow que informa: `TECNOLOGIA EM ONCOLOGIA` |
+| palavra colorida escolhida ao acaso | a palavra que **é** a oferta |
+| `01 / 02 / 03` decorando três cards | numeração onde existe sequência de verdade |
+
+Se o elemento sobrevive a "isso diria a mesma coisa para outro negócio?",
+apague. Se é específico deste negócio, use sem culpa.
+
+## O que ainda denuncia site gerado
+
+Estes continuam valendo, porque são falta de decisão, não técnica:
+
+- creme quente + serif + terracota, sem o brief ter pedido
 - fundo preto + um neon
-- layout de jornal com filete em tudo
-- kit SaaS — cards idênticos, mesma sombra, mesmo raio, wash de degradê
-- eyebrow em caixa alta acima de todo título
-- meta com ponto médio (`A · B · C`)
-- rótulo `PALAVRA — fragmento`
-- uma palavra do título em outra cor ou itálico
-- seta `→` no fim de todo botão
-- Inter / Arial / Roboto como personalidade
+- **kit SaaS: cards idênticos, mesma sombra, mesmo raio, wash de degradê** em
+  tudo, sem hierarquia entre eles
+- meta com ponto médio (`A · B · C`) como enfeite
+- seta `→` no fim de **todo** botão
+- Inter / Arial / Roboto como personalidade, sem nenhuma escolha de tipo
 - glassmorphism, texto em degradê, grid decorativo de linhas
 
-Estrutura visual informa. Numeração `01 / 02 / 03` só se o conteúdo for sequência de verdade.
+O teste é o mesmo: o elemento diz algo sobre **este** negócio, ou é textura?
 
 ## Tipo, cor, espaço, motion
 

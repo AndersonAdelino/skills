@@ -25,23 +25,40 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# O h1 de um site institucional tem que dominar a primeira tela. 2.5rem num
-# monitor de 1440 le como subtitulo, e foi o que saiu no site da Stella.
-H1_MINIMO_REM = 3.0
-RAZAO_MINIMA = 2.6          # h1 / corpo. Abaixo disso nao existe hierarquia
+# ── os limites, calibrados contra seis sites institucionais reais ────────────
+#
+# A primeira versao destes numeros foi inventada, e os seis sites de referencia
+# REPROVARAM em metade deles. O que ficou e o que sobreviveu a medicao.
+#
+#   site                 h1(css)  tamanhos  hover  transition  shadow  <footer>
+#   interprocess          inline      48     105       336       97      sim
+#   allserviceindustrial   2.5rem     28      16        29       10      nao
+#   spaceclass            inline      10     130       100       42      nao
+#   savassiagronegocio     2.5rem     30      29        87       24      nao
+#   pontualtecnologia      2.5rem     18     114       139       41      nao
+#   megalihub              1.25rem    22      71        88       74      sim
+#
+# O que a tabela ensinou, e que derrubou checagens que eu tinha escrito:
+#
+#   - CONTAR TAMANHOS DE FONTE NO CSS NAO MEDE NADA. Todos tem de 10 a 48,
+#     porque o CSS traz tema, framework e plugin inteiros. A checagem reprovava
+#     6 de 6 sites bons. Removida.
+#   - O h1 DECLARADO no CSS tambem nao vale: metade destes sites define o
+#     tamanho real inline, pelo construtor de pagina. So o valor renderizado
+#     diz algo, e isso exige browser.
+#   - `<footer>` nao vale: 4 de 6 usam `<div class="footer">`. Removida.
+#
+# O que sobreviveu foi a DENSIDADE DE INTERACAO, e por uma margem enorme: o
+# site ruim tinha 2 hover e 1 transition; o mais discreto dos bons tem 16 e 29.
+# Nao e questao de gosto, e de ordem de grandeza.
+HOVER_MINIMO = 12           # o mais discreto dos seis tem 16
+TRANSICAO_MINIMA = 20       # o mais discreto tem 29
+SOMBRA_MINIMA = 8           # o mais discreto tem 10
 
-# 10 tamanhos com 7 amontoados entre 0.85 e 1.15rem nao e escala, e ruido.
-TAMANHOS_MAXIMO = 8
-DEGRAU_MINIMO = 1.12        # dois tamanhos a 3% de distancia nao se distinguem
-
-# 1 transicao e 1 sombra em 75 regras: nada responde ao cursor, nada tem
-# profundidade. O site fica com cara de rascunho de HTML.
-HOVER_MINIMO = 4
-TRANSICAO_MINIMA = 3
-
-# h1 { max-width: 18ch } foi o defeito central do site da Stella: o titulo
-# quebrava em tres linhas curtas e metade da tela ficava vazia.
-CH_MINIMO_TITULO = 24
+# Estes dois continuam valendo porque sao defeito, nao estilo, e nenhum dos
+# seis comete: h1 estrangulado em coluna de leitura, e desktop sem grade.
+CH_MINIMO_TITULO = 24       # h1 { max-width: 18ch } foi o defeito da Stella
+RAZAO_MINIMA = 2.0          # so avisa quando da para medir os dois no CSS
 
 
 class Erro(RuntimeError):
@@ -134,59 +151,48 @@ def medir(dist: Path) -> dict:
     h1 = fonte_do_seletor(css, "h1")
     corpo = fonte_do_seletor(css, "body") or 1.0
     # degraus colados: dois tamanhos que ninguem distingue
-    colados = sum(1 for a, b in zip(tamanhos, tamanhos[1:])
-                  if b / a < DEGRAU_MINIMO)
     return {
         "h1_rem": h1,
         "corpo_rem": corpo,
         "razao": round(h1 / corpo, 2) if h1 and corpo else None,
         "tamanhos": tamanhos,
-        "colados": colados,
+        "sombra": len(re.findall(r"box-shadow", css)),
         "h1_ch": largura_em_ch(css, "h1"),
         "hover": len(re.findall(r":hover", css)),
         "focus": len(re.findall(r":focus", css)),
         "transicao": len(re.findall(r"transition", css)),
         "grades_desktop": grades_no_desktop(css),
         "media_queries": len(re.findall(r"@media", css)),
-        "footer": "<footer" in html,
         "regras": css.count("{"),
     }
 
 
 def avaliar(m: dict) -> list:
-    """Lista de falhas. Cada uma diz o numero medido e o que se espera."""
+    """Lista de falhas. Cada uma diz o numero medido e a referencia real."""
     f = []
-    if not m["h1_rem"]:
-        f.append("o h1 nao tem font-size declarado")
-    elif m["h1_rem"] < H1_MINIMO_REM:
-        f.append(f"h1 em {m['h1_rem']}rem. No desktop um titulo institucional "
-                 f"precisa de pelo menos {H1_MINIMO_REM}rem, ou le como subtitulo")
-    if m["razao"] and m["razao"] < RAZAO_MINIMA:
-        f.append(f"h1 tem so {m['razao']}x o corpo do texto. Abaixo de "
-                 f"{RAZAO_MINIMA}x nao existe hierarquia, so tamanhos parecidos")
-    if len(m["tamanhos"]) > TAMANHOS_MAXIMO:
-        f.append(f"{len(m['tamanhos'])} tamanhos de fonte diferentes. Acima de "
-                 f"{TAMANHOS_MAXIMO} nao e escala, e ruido: {m['tamanhos']}")
-    if m["colados"]:
-        f.append(f"{m['colados']} par(es) de tamanhos a menos de "
-                 f"{int((DEGRAU_MINIMO-1)*100)}% de distancia. Ninguem "
-                 "distingue, entao nao comunicam nada")
     if m["h1_ch"] and m["h1_ch"] < CH_MINIMO_TITULO:
-        f.append(f"h1 com max-width de {int(m['h1_ch'])}ch. Isso estrangula o "
-                 "titulo em linhas curtas e deixa a tela vazia ao lado")
+        f.append(f"h1 com max-width de {int(m['h1_ch'])}ch: o titulo quebra em "
+                 "linhas curtas e deixa a tela vazia ao lado. `ch` e para "
+                 "paragrafo, nunca para titulo")
+    if m["razao"] and m["razao"] < RAZAO_MINIMA:
+        f.append(f"h1 tem {m['razao']}x o corpo do texto. Sem contraste de "
+                 "tamanho nao existe hierarquia, so tamanhos parecidos")
     if m["hover"] < HOVER_MINIMO:
-        f.append(f"{m['hover']} estado(s) :hover em {m['regras']} regras. Nada "
-                 "responde ao cursor, e o site parece um rascunho")
+        f.append(f"{m['hover']} estado(s) :hover em {m['regras']} regras. O "
+                 f"mais discreto dos seis sites de referencia tem 16, e o site "
+                 "que foi reprovado tinha 2: nada respondia ao cursor")
+    if m["transicao"] < TRANSICAO_MINIMA:
+        f.append(f"{m['transicao']} transicao(oes). A referencia mais discreta "
+                 "tem 29, e o site reprovado tinha 1. Troca seca de estado e o "
+                 "que mais denuncia site amador")
+    if m["sombra"] < SOMBRA_MINIMA:
+        f.append(f"{m['sombra']} box-shadow. A referencia mais discreta tem 10: "
+                 "sem profundidade nenhuma tudo fica no mesmo plano")
     if not m["focus"]:
         f.append("nenhum estado de foco: quem navega por teclado fica perdido")
-    if m["transicao"] < TRANSICAO_MINIMA:
-        f.append(f"{m['transicao']} transicao(oes). Sem elas todo estado troca "
-                 "seco, e isso e o que mais denuncia site amador")
     if m["media_queries"] and not m["grades_desktop"]:
         f.append("nenhuma grade de varias colunas no desktop. O layout largo "
                  "vira a coluna do celular esticada, com metade da tela vazia")
-    if not m["footer"]:
-        f.append("sem <footer>: o site termina no ar e parece inacabado")
     return f
 
 
@@ -194,10 +200,9 @@ def relatar(dist: Path) -> int:
     m = medir(dist)
     print(f"\n{dist}")
     print(f"  h1 {m['h1_rem']}rem  corpo {m['corpo_rem']}rem  razao {m['razao']}x")
-    print(f"  {len(m['tamanhos'])} tamanhos  |  hover {m['hover']}  focus "
-          f"{m['focus']}  transicao {m['transicao']}")
-    print(f"  {m['grades_desktop']} grade(s) no desktop  |  footer: "
-          f"{'sim' if m['footer'] else 'NAO'}")
+    print(f"  hover {m['hover']}  focus {m['focus']}  transicao "
+          f"{m['transicao']}  sombra {m['sombra']}   ({m['regras']} regras)")
+    print(f"  {m['grades_desktop']} grade(s) de varias colunas no desktop")
     falhas = avaliar(m)
     if not falhas:
         print("\n  ✅ passa no chao de artesanato")
@@ -240,33 +245,34 @@ def autoteste():
     # fora de media query nao conta: o mobile pode ter grade de 1 coluna
     assert grades_no_desktop(".g{grid-template-columns:1fr 1fr}") == 0
 
-    m = {**medir_de_texto(ruim), "footer": False, "regras": 14}
-    f = avaliar(m)
-    texto = " | ".join(f)
-    assert any("2.5rem" in x for x in f), "h1 pequeno tem que falhar"
-    assert any("18ch" in x for x in f), "o estrangulamento do titulo tem que falhar"
+    f = avaliar({**medir_de_texto(ruim), "regras": 14})
+    assert any("18ch" in x for x in f), "titulo estrangulado tem que falhar"
     assert any("hover" in x for x in f), "2 hovers tem que falhar"
+    assert any("transicao" in x for x in f), "1 transicao tem que falhar"
     assert any("grade" in x for x in f), "desktop sem grade tem que falhar"
-    assert any("footer" in x for x in f), "sem footer tem que falhar"
-    assert any("tamanhos" in x or "distancia" in x for x in f), texto
 
-    # ── um CSS que passa ────────────────────────────────────────────────────
-    bom = """
-    body { font-size: 1.0625rem; }
-    h1 { font-size: 3.5rem; max-width: 32ch; }
-    h2 { font-size: 2.25rem; } h3 { font-size: 1.375rem; }
-    .peq { font-size: 0.875rem; }
-    a:hover{}.b:hover{}.c:hover{}.d:hover{} :focus-visible{}
-    .a{transition:a} .b{transition:b} .c{transition:c}
-    @media (min-width: 760px) { .g { grid-template-columns: repeat(3, 1fr); } }
-    """
-    mb = {**medir_de_texto(bom), "footer": True, "regras": 20}
-    assert avaliar(mb) == [], avaliar(mb)
+    # ── e o que NAO pode mais falhar, porque reprovava 6 de 6 referencias ───
+    # Contar tamanho de fonte no CSS mede o framework, nao o design.
+    muitos = "body{font-size:1rem}" + "".join(
+        f".c{i}{{font-size:{0.8 + i*0.03:.2f}rem}}" for i in range(20))
+    muitos += ("h1{font-size:3rem}" + "a:hover{}" * 14 + ":focus{}"
+               + ".t{transition:a}" * 22 + ".s{box-shadow:a}" * 10
+               + "@media s{.g{grid-template-columns:1fr 1fr}}")
+    assert avaliar({**medir_de_texto(muitos), "regras": 60}) == [], \
+        "contar tamanhos de fonte reprovava todos os seis sites bons"
+
+    # ── um CSS que passa, com a densidade das referencias ───────────────────
+    bom = ("body{font-size:1.0625rem} h1{font-size:3.5rem;max-width:32ch}"
+           + "a:hover{}" * 14 + ":focus-visible{}" + ".t{transition:a}" * 22
+           + ".s{box-shadow:0 1px 2px}" * 10
+           + "@media (min-width:760px){.g{grid-template-columns:repeat(3,1fr)}}")
+    assert avaliar({**medir_de_texto(bom), "regras": 60}) == [], \
+        avaliar({**medir_de_texto(bom), "regras": 60})
 
     # razao: o que separa hierarquia de "tudo quase igual"
-    quase = {**medir_de_texto("body{font-size:1rem} h1{font-size:2rem}"),
-             "footer": True, "regras": 9, "hover": 9, "focus": 1,
-             "transicao": 9, "grades_desktop": 1, "media_queries": 1}
+    quase = {**medir_de_texto("body{font-size:1rem} h1{font-size:1.5rem}"),
+             "regras": 9, "hover": 20, "focus": 1, "transicao": 30,
+             "sombra": 10, "grades_desktop": 1, "media_queries": 1}
     assert any("hierarquia" in x for x in avaliar(quase)), avaliar(quase)
     print("✅ autoteste passou")
 
@@ -280,15 +286,15 @@ def medir_de_texto(css: str) -> dict:
         "h1_rem": h1, "corpo_rem": corpo,
         "razao": round(h1 / corpo, 2) if h1 and corpo else None,
         "tamanhos": tamanhos,
-        "colados": sum(1 for a, b in zip(tamanhos, tamanhos[1:])
-                       if b / a < DEGRAU_MINIMO),
+        "sombra": len(re.findall(r"box-shadow", css)),
         "h1_ch": largura_em_ch(css, "h1"),
         "hover": len(re.findall(r":hover", css)),
         "focus": len(re.findall(r":focus", css)),
         "transicao": len(re.findall(r"transition", css)),
         "grades_desktop": grades_no_desktop(css),
         "media_queries": len(re.findall(r"@media", css)),
-        "footer": True, "regras": css.count("{"),
+        "sombra": len(re.findall(r"box-shadow", css)),
+        "regras": css.count("{"),
     }
 
 
