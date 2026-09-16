@@ -1,0 +1,6 @@
+# O repo e editado no Windows e instalado em Windows, Mac e Linux.
+# Sem isto, core.autocrlf=true grava CRLF em script shell e o shebang vira
+# "#!/usr/bin/env bash\r" -> "bad interpreter" na maquina do usuario.
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf

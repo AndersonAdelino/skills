@@ -1,0 +1,23 @@
+{
+  "skill_name": "local-site-lift",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Quero melhorar o site da Padaria São José em Currais Novos/RN. O site atual é https://example.com/padaria-feia (pode fingir que é um HTML antigo, fundo branco, menu com 12 itens, telefone só no rodapé). WhatsApp 84 99999-1234, abre 6h-19h, fecha domingo. Fica na Rua Grande, 120, Centro. Não faça deploy. Quero o site estático pronto em dist/.",
+      "expected_output": "PRODUCT.md preenchido, DESIGN.md com direção própria de padaria, dist/index.html mobile-first com wa.me/5584999991234, horário e endereço visíveis, sem inventar CNPJ nem avaliações.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Reconstrói a vitrine da Oficina do Zé (alinhamento e balanceamento em Natal). Site feio do Wix, sem URL agora. Instagram @oficinaze, WhatsApp 84 98888-0000. Não precisa publicar ainda.",
+      "expected_output": "Site estático de oficina, não de fintech. PRODUCT.md com [CONFIRMAR] no que falta. dist/ pronto e servido em localhost para aprovação. NÃO tenta publicar nem pede token: publicar é da skill cpanel-deploy, e deve ser oferecido como próximo passo.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Transforma o tema WordPress da minha loja WooCommerce em um site novo e mantém o carrinho, cupom e área do cliente. Depois publica no cPanel.",
+      "expected_output": "A skill recusa o carrinho/WooCommerce e oferece só a vitrine estática com WhatsApp. Não gera PHP de e-commerce nem promete migrar pedidos. Menciona que publicar é de outra skill.",
+      "files": []
+    }
+  ]
+}
