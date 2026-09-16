@@ -306,6 +306,9 @@ class Cpanel:
     def ler(self, pasta: str, arquivo: str) -> dict:
         return self.chamar("Fileman", "get_file_content", dir=pasta, file=arquivo)
 
+    def dominios(self) -> dict:
+        return self.chamar("DomainInfo", "domains_data")
+
 
     def enviar(self, pasta_remota: str, arquivo: Path, nome: str) -> dict:
         # `overwrite=1` e obrigatorio: sem ele o cPanel recusa arquivo que ja
@@ -394,6 +397,42 @@ def outro_negocio(titulo_la, titulo_novo) -> bool:
     return titulo_la.strip() != titulo_novo.strip()
 
 
+def ler_dominios(resposta) -> list:
+    """[(dominio, documentroot, tipo)] do que a conta realmente tem."""
+    d = (resposta or {}).get("data") or {}
+    saida = []
+    md = d.get("main_domain") or {}
+    if md.get("domain"):
+        saida.append((md["domain"], md.get("documentroot", ""), "principal"))
+    for chave, tipo in (("addon_domains", "addon"),
+                        ("sub_domains", "subdominio"),
+                        ("parked_domains", "estacionado")):
+        for a in (d.get(chave) or []):
+            if isinstance(a, dict) and a.get("domain"):
+                saida.append((a["domain"], a.get("documentroot", ""), tipo))
+    return saida
+
+
+def caminho_do_dominio(dominios: list, alvo: str, usuario: str):
+    """DEPLOY_PATH de um dominio da conta. None se ele nao estiver la.
+
+    Vale mais que perguntar ao usuario: o cPanel sabe o document root exato de
+    cada dominio. E "esse dominio nem esta na conta" e a resposta mais
+    importante das tres, porque nenhuma pasta serve enquanto isso for verdade.
+    """
+    alvo = limpar_host(alvo).lower()
+    if alvo.startswith("www."):
+        alvo = alvo[4:]
+    for dominio, raiz, _tipo in dominios:
+        atual = dominio.lower()
+        if atual.startswith("www."):
+            atual = atual[4:]
+        if atual == alvo:
+            prefixo = f"/home2/{usuario}/"     # vira relativo a home
+            return raiz[len(prefixo):] if raiz.startswith(prefixo) else raiz
+    return None
+
+
 def pasta_inexistente(resposta) -> bool:
     """A listagem falhou porque a pasta nao existe (e nao por outro motivo)."""
     msg = erros_de(resposta).lower()
@@ -456,6 +495,56 @@ def conferir_publicado(url: str, marca, inseguro=False):
 
 
 # ── deploy ────────────────────────────────────────────────────────────────────
+
+def listar_dominios(cfg: dict, inseguro=False, procurar=None) -> int:
+    """Mostra o que a conta TEM, para ninguem escolher DEPLOY_PATH no escuro.
+
+    Perguntar "qual e a pasta?" e perguntar uma coisa que o servidor sabe
+    responder. Pior: quando o dominio nem esta na conta, toda opcao que se
+    ofereceria esta errada, e so o cPanel pode dizer isso.
+    """
+    cp = Cpanel(cfg, inseguro=inseguro)
+    r = cp.dominios()
+    if not status_do_topo(r):
+        raise Erro(f"nao consegui listar os dominios: {erros_de(r)}")
+    doms = ler_dominios(r)
+    usuario = cfg["CPANEL_USER"]
+
+    print()
+    print(f"{len(doms)} dominio(s) nesta conta:")
+    print()
+    for dominio, raiz, tipo in doms:
+        curto = caminho_do_dominio([(dominio, raiz, tipo)], dominio, usuario)
+        print(f"  {dominio}")
+        print(f"     {tipo:<12} DEPLOY_PATH={curto}")
+
+    if not procurar:
+        print()
+        print("Cliente novo, sem dominio proprio ainda: subpasta do principal.")
+        print("  DEPLOY_PATH=public_html/<nome-do-cliente>")
+        return 0
+
+    achado = caminho_do_dominio(doms, procurar, usuario)
+    if achado:
+        print()
+        print(f"'{procurar}' esta na conta.")
+        print(f"  DEPLOY_PATH={achado}")
+        return 0
+
+    curto = limpar_host(procurar)
+    if curto.startswith("www."):
+        curto = curto[4:]
+    print()
+    print(f"'{procurar}' NAO esta nesta conta cPanel.")
+    print()
+    print("Entao nem public_html nem addon domain servem ainda. Uma das duas:")
+    print()
+    print("  1. adicione como addon domain no cPanel, com o document root FORA")
+    print("     do public_html, e use o caminho que ele mostrar")
+    print("  2. publique numa subpasta enquanto o dominio nao aponta para ca:")
+    print(f"     DEPLOY_PATH=public_html/{curto.split('.')[0]}")
+    return 1
+
 
 def deploy(cfg: dict, dry_run=False, inseguro=False, forcar=False) -> int:
     origem = Path(cfg["SOURCE_DIR"])
@@ -573,6 +662,33 @@ RESPOSTAS = [
 
 def autoteste():
     import tempfile, shutil
+
+    # ── o cPanel sabe onde cada dominio mora: nao se pergunta ao usuario ────
+    # Uma sessao perguntou "public_html ou addon domain?" e ofereceu as duas,
+    # com o dominio nem estando na conta. As duas respostas estavam erradas.
+    resp = {"status": 1, "data": {
+        "main_domain": {"domain": "agencia.com.br",
+                        "documentroot": "/home2/u1/public_html"},
+        "addon_domains": [{"domain": "padaria.com.br",
+                           "documentroot": "/home2/u1/clientes/padaria"}],
+        "sub_domains": [], "parked_domains": []}}
+    doms = ler_dominios(resp)
+    assert len(doms) == 2 and doms[0][2] == "principal", doms
+    assert ("padaria.com.br", "/home2/u1/clientes/padaria", "addon") in doms
+
+    # o caminho vira relativo a home, que e o que DEPLOY_PATH espera
+    assert caminho_do_dominio(doms, "agencia.com.br", "u1") == "public_html"
+    assert caminho_do_dominio(doms, "padaria.com.br", "u1") == "clientes/padaria"
+    # www e https:// no que o usuario digita nao podem atrapalhar
+    assert caminho_do_dominio(doms, "www.padaria.com.br", "u1") == "clientes/padaria"
+    assert caminho_do_dominio(doms, "https://padaria.com.br/", "u1") == "clientes/padaria"
+    # o caso real: dominio fora da conta -> None, nunca um chute
+    assert caminho_do_dominio(doms, "clstellafernandes.com.br", "u1") is None
+    # docroot fora da home volta inteiro, sem cortar errado
+    assert caminho_do_dominio([("x.com", "/var/www/x", "addon")], "x.com", "u1") \
+        == "/var/www/x"
+    assert ler_dominios({"status": 1, "data": {}}) == []
+    assert ler_dominios({}) == []
 
     # ── o defeito que motivou reescrever ────────────────────────────────────
     for bruto, esperado in RESPOSTAS:
@@ -832,6 +948,11 @@ def autoteste():
 def main():
     p = argparse.ArgumentParser(
         description="Publica uma pasta estatica no cPanel da HostGator.")
+    p.add_argument("comando", nargs="?", choices=["dominios"],
+                   help="dominios: lista os dominios da conta e onde cada um "
+                        "mora. Rode ANTES de escolher DEPLOY_PATH")
+    p.add_argument("--dominio", help="com `dominios`: procura este dominio e "
+                                     "diz o DEPLOY_PATH dele")
     p.add_argument("--env", default=None,
                    help="usa SO este arquivo, em vez de juntar os .env das "
                         "pastas acima")
@@ -853,9 +974,13 @@ def main():
     if args.inseguro:
         print("aviso: verificacao de certificado desligada. O token viaja "
               "nessa conexao.\n", file=sys.stderr)
-    cfg = carregar_config(args.env, exigir_credenciais=not args.dry_run)
+    # `dominios` abre conexao, entao precisa de credencial mesmo com --dry-run
+    cfg = carregar_config(args.env,
+                          exigir_credenciais=bool(args.comando) or not args.dry_run)
     if cfg["_origens"]:
         print("config: " + " + ".join(cfg["_origens"]))
+    if args.comando == "dominios":
+        return listar_dominios(cfg, args.inseguro, args.dominio)
     return deploy(cfg, dry_run=args.dry_run, inseguro=args.inseguro,
                   forcar=args.forcar)
 

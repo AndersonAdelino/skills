@@ -78,6 +78,32 @@ python <SKILL>/scripts/deploy-cpanel.py             # publica
 Sempre `--dry-run` primeiro. Ele não abre conexão nenhuma e por isso nem pede
 credencial: serve para conferir o lote e o destino antes de tocar no servidor.
 
+### Não pergunte o `DEPLOY_PATH`: o servidor sabe
+
+Cliente novo ainda não tem `.env`, e é tentador perguntar ao usuário qual é a
+pasta. **Não pergunte antes de olhar.** O cPanel tem o document root exato de
+cada domínio da conta:
+
+```bash
+python <SKILL>/scripts/deploy-cpanel.py dominios
+python <SKILL>/scripts/deploy-cpanel.py dominios --dominio clientedele.com.br
+```
+
+Três respostas possíveis, e a terceira é a que importa:
+
+| Resposta | O que fazer |
+|---|---|
+| O domínio está na conta | use o `DEPLOY_PATH` que ele imprimiu, sem perguntar nada |
+| Não está, e o cliente ainda não tem domínio | subpasta do principal: `public_html/<cliente>` |
+| **Não está, mas o cliente tem domínio** | ele ainda não aponta para cá. Adicione como addon domain antes, **com o document root fora do `public_html`** |
+
+Uma sessão real perguntou *"public_html ou addon domain?"* e ofereceu as duas
+para um domínio que **não estava na conta**. As duas respostas estavam erradas,
+e o servidor teria dito isso em dois segundos.
+
+Depois de saber o caminho, aí sim pergunte o que é decisão de negócio: subpasta
+agora ou domínio próprio já.
+
 ---
 
 ## O que ele faz sozinho
