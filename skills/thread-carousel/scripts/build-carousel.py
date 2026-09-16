@@ -364,11 +364,22 @@ def gerar_imagem(prompt: str, destino: Path, aspect="1:1", modelo=KIE_MODELO):
 
 # ── Pexels ────────────────────────────────────────────────────────────────────
 
+# O Pexels fica atras do Cloudflare, que recusa requisicao sem User-Agent com
+# 403 e "error code: 1010". Sem este header o comando `stock` nunca funcionou -
+# descoberto na primeira vez que ele rodou de verdade.
+UA_PEXELS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+
+def headers_pexels(chave: str) -> dict:
+    """Os dois headers sao obrigatorios. Sem o User-Agent nao ha busca nenhuma."""
+    return {"Authorization": chave, "User-Agent": UA_PEXELS}
+
+
 def buscar_stock(busca: str, destino: Path):
     chave = carregar_chave("PEXELS_API_KEY", "https://www.pexels.com/api/")
     url = "https://api.pexels.com/v1/search?" + urllib.parse.urlencode(
         {"query": busca, "per_page": 1, "orientation": "landscape"})
-    r = _http_json(url, None, {"Authorization": chave})
+    r = _http_json(url, None, headers_pexels(chave))
     fotos = r.get("photos") or []
     if not fotos:
         raise RuntimeError(f"Pexels nao achou nada para '{busca}'.")
@@ -874,6 +885,14 @@ def autoteste():
     assert tipo_imagem(b"\xff\xd8\xff\xe0") == "jpg"
     assert tipo_imagem(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == "webp"
     assert tipo_imagem(b"<!doctype html><title>404") is None
+
+    # ── o Pexels recusa requisicao sem User-Agent (Cloudflare 403/1010) ─────
+    # O comando `stock` nunca tinha rodado; na primeira vez que rodou, 403 em
+    # tudo. Os DOIS headers sao obrigatorios.
+    h = headers_pexels("chave-de-teste")
+    assert h["Authorization"] == "chave-de-teste"
+    assert h["User-Agent"].startswith("Mozilla/"), \
+        "sem User-Agent o Pexels devolve 403 para todo mundo"
 
     tmpdir = Path(tempfile.mkdtemp(prefix="carousel-teste-"))
     try:
