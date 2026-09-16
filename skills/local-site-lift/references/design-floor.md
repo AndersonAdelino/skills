@@ -147,7 +147,44 @@ Cor tem dono. Uma cor de ação (o botão do WhatsApp). Fundo e texto com contra
 
 Espaço é ritmo, não margem aleatória. Seções respiram. No mobile, o dedo precisa do botão grande e do número visível sem pinça.
 
-Motion só responde a um gesto da pessoa (abrir menu, confirmar) ou a um único momento na entrada. Fade+slide em toda seção é default de IA.
+## Movimento: `reduce` não é tudo ou nada
+
+No Windows, `prefers-reduced-motion: reduce` quase sempre significa "desliguei
+efeito visual", não "movimento me dá enjoo". Tratar como desligar tudo entrega
+um site morto a quem só queria economizar GPU — e foi exatamente o que o dono
+viu na máquina dele.
+
+Separe as duas coisas:
+
+| | Com `reduce` |
+|---|---|
+| **Transformação**: deslizar, escalar, parallax, revelação no scroll | **some.** É ela que causa desconforto vestibular |
+| **Cor, opacidade, sombra** | **continuam.** Não movem nada, e são o que faz o site responder ao cursor |
+
+```css
+html:not([data-anim]) * {
+  transition-property: color, background-color, border-color, box-shadow, opacity !important;
+  animation: none !important;
+}
+html:not([data-anim]) *:hover { transform: none !important; }
+```
+
+E ponha **`?anim=1`** ligando tudo, com o JS escrevendo `data-anim` no `<html>`.
+Sem isso o dono não consegue avaliar o próprio site na máquina dele.
+
+Fora isso: motion responde a um gesto (abrir menu, passar o cursor) ou a um
+único momento de entrada. Fade e slide em **toda** seção é default de IA.
+
+## Imagem exibida maior que o nativo borra
+
+Foto do perfil do Google tem no máximo o que a pessoa subiu. No caso testado,
+1440×809 — e `negocio.py` já pede `=s0`, que é esse teto. Não existe maior.
+
+- **limite a largura de exibição à largura real do arquivo.** Uma banda com
+  `max-width: 1200px` a partir de um arquivo de 1440px fica nítida; a mesma
+  imagem em `width: 100%` num monitor de 1920 é ampliação, e aparece
+- foto noturna de celular tem ruído. `unsharp=5:5:0.8` no ffmpeg ajuda, e nela
+  vale subir a qualidade do webp para 90+
 
 ## Chão de produção
 
@@ -156,7 +193,6 @@ O site sobe em hospedagem compartilhada e é aberto no 4G, no sol, com uma mão.
 - legível no celular de 360px sem scroll horizontal
 - contraste de texto suficiente
 - foco de teclado visível
-- `prefers-reduced-motion` respeitado
 - imagens com tamanho realista (não 4k no hero)
 - um `h1`, heading em ordem
 - tap targets de CTA com área folgada

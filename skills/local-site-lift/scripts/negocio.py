@@ -213,6 +213,18 @@ def imprimir(d: dict):
 
 # ── fotos ─────────────────────────────────────────────────────────────────────
 
+def maior_resolucao(url: str) -> str:
+    """Troca o sufixo de tamanho do CDN do Google por `=s0`, o original.
+
+    As URLs vem como `.../AHRPTW...=w1920-h1080-k-no`, e a mesma URL sem
+    sufixo nenhum devolve 512x288. Pedir `=s0` garante o maior que existe, que
+    no caso testado era 1440x809. Nao ha versao maior: e o que a pessoa subiu.
+    """
+    if "googleusercontent.com" not in url:
+        return url
+    return url.split("=")[0] + "=s0"
+
+
 def tipo_imagem(b: bytes):
     if b[:8] == b"\x89PNG\r\n\x1a\n":
         return "png"
@@ -236,6 +248,11 @@ def baixar_fotos(dados: dict, destino: Path, n=4):
     destino.mkdir(parents=True, exist_ok=True)
     salvas = []
     for i, u in enumerate(urls, 1):
+        # `=s0` pede o ORIGINAL ao CDN do Google. A mesma URL sem sufixo
+        # devolve 512x288, e foto de 512px exibida em banda larga num site
+        # fica visivelmente borrada. Nao existe versao maior que o original,
+        # entao este e o teto: use-o.
+        u = maior_resolucao(u)
         try:
             b = urllib.request.urlopen(
                 urllib.request.Request(u, headers={"User-Agent": UA}),
@@ -329,6 +346,15 @@ def autoteste():
     # ── bytes, nao extensao ─────────────────────────────────────────────────
     assert tipo_imagem(b"\xff\xd8\xff\xe0") == "jpg"
     assert tipo_imagem(b"<!doctype html>") is None
+
+    # ── `=s0` ou a foto chega em 512x288 e borra numa banda larga ───────────
+    g = "https://lh3.googleusercontent.com/gps-cs-s/ABC123"
+    assert maior_resolucao(g + "=w1920-h1080-k-no") == g + "=s0"
+    assert maior_resolucao(g) == g + "=s0", "URL sem sufixo tambem precisa"
+    assert maior_resolucao(g + "=s0") == g + "=s0", "idempotente"
+    # de outro dominio nao se mexe: o sufixo pode ser parte do caminho
+    outro = "https://exemplo.com.br/foto=grande.jpg"
+    assert maior_resolucao(outro) == outro
 
     import tempfile, shutil
     tmp = Path(tempfile.mkdtemp(prefix="neg-teste-"))
