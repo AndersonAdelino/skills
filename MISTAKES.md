@@ -2,9 +2,13 @@
 
 Every bug that shipped, why it happened, and what fixed it.
 
-This exists because the same mistakes were being made twice across sessions. If
-you are about to touch audio parameters, detection heuristics, or a batch path,
-read the relevant entry first.
+This exists because the same mistakes were being made twice across sessions.
+Read the relevant entry first if you are about to touch audio parameters,
+detection heuristics, a batch path, a third-party API, a deploy, or anything
+that renders with headless Chrome.
+
+The recurring patterns below apply to skills that do not exist yet. Read those
+even when nothing here matches what you are building.
 
 ---
 
@@ -55,6 +59,21 @@ judged by the person whose video it is.
 
 The tell, before it becomes obvious: a parameter added to fix a specific file.
 One is a calibration. Three is a category error.
+
+### 5. The error message names the wrong cause
+
+An error arrives with a confident explanation attached, and the explanation is
+wrong. You then spend the time on the thing it named.
+
+Twice in one day a `403` meant "no User-Agent header" and was read as "bad
+credentials" — once by me, once by my own error message, which told the user to
+go check token permissions that were never the problem. The test that settled
+it took ten seconds: **send the same request with no credentials at all.** Same
+error. So it was never about credentials.
+
+Before acting on an error's stated cause, find the cheapest request that
+isolates it. And when *you* write the error text, only name a cause you
+actually checked — a guess in an error message sends someone hunting for hours.
 
 ---
 
@@ -292,6 +311,67 @@ output tail when the measurement is missing, and one plain line before giving up
 
 ---
 
+## Deploy and third-party APIs
+
+Found publishing a real client site to a real HostGator. None of it would have
+shown up locally.
+
+### 2026-09-16 — A 403 blamed the token; it was a missing User-Agent
+
+**Symptom.** Every cPanel API call returned `403` with `error code: 1010`. The
+script said "the cPanel refused the token. Check user, token, and File Manager
+permission." The token was correct the whole time.
+
+**Cause.** HostGator serves cPanel behind Cloudflare, which rejects requests
+with no `User-Agent` **before** looking at authentication. The same thing had
+already happened with the Pexels API an hour earlier, and the `stock` command
+of another skill had never worked for anyone because of it.
+
+**Fix.** Send a browser `User-Agent` on every third-party call. When `1010`
+appears anyway, say explicitly that it is *not* the token. Pinned by a test
+that asserts the header reaches the request.
+
+The diagnosis that ended it: the same request **with no credentials at all**
+returned the identical error. See recurring pattern 5.
+
+### 2026-09-16 — `Fileman::mkdir` does not exist, and the old script called it
+
+**Symptom.** Creating a client folder failed with "The system could not find
+the function mkdir in the module Fileman".
+
+**Cause.** That UAPI function does not exist in this cPanel version — nor
+`create_directory`, nor `makedir`. I asked the server instead of guessing
+again. The previous bash version of the deploy called `Fileman::mkdir`, so it
+could never have created a client folder; nobody had noticed because nobody had
+run it against a fresh destination.
+
+**Fix.** Not a fix — a deletion. `Fileman::upload_files` creates the directory
+tree on its own, nested included, so `criar_caminho`, `pastas_para_criar` and
+`criar_pasta` were removed. The test is behavioural:
+`assert not hasattr(Cpanel, "criar_pasta")`.
+
+Before writing against a remote API, ask it what it has. Docs and memory both
+lie, and the server is authoritative and free to query.
+
+### 2026-09-16 — The second deploy of every client would have failed
+
+**Symptom.** First deploy: 10/10 files. Redeploy after an edit: 0/10, "the file
+for upload already exists".
+
+**Cause.** `Fileman::upload_files` refuses to overwrite unless `overwrite=1` is
+in the request. The first run works, which is exactly the run everyone tests.
+**Republishing after a tweak is the most common operation this skill has**, and
+it was broken in every case.
+
+**Fix.** `overwrite=1`, plus a guard that makes overwriting safe: the deploy
+reads the `<title>` already on the server and stops if it belongs to a
+different business. Both pinned by tests.
+
+The general form: **the second run is a different test from the first.** Idempotency,
+overwrite, resume and re-entry never show up in a first-run demo.
+
+---
+
 ## Tooling
 
 ### 2026-09-11 — PowerShell here-string broke `git commit` twice
@@ -308,6 +388,98 @@ it as UTF-8. `silêncios` became `silÃªncios` across three files.
 
 **Fix.** `git checkout` to revert, then `[System.IO.File]::ReadAllText/WriteAllText`
 with UTF-8 specified on both ends.
+
+### 2026-09-16 — An estimator that could not be accurate, proven by measuring
+
+**Symptom.** A Python function estimated how many lines of text would fit on a
+rendered slide, from average character width. It produced a false positive on
+the first real carousel, warning that a slide would not fit when it did.
+
+**Cause.** Not a bad constant — a wrong idea. Measured against Chrome with the
+real reference copy, **no single characters-per-line value reproduces the
+browser**: at 40px one sentence needs more than 52 per line and another at most
+43, in the same box. Proportional fonts, accents and word-wrap make it
+unestimable, and any constant is wrong for some input.
+
+**Fix.** Deleted, not tuned. The layout measures itself: the page carries every
+slide, shrinks the type until all of them fit, and paints a red bar into the PNG
+when one still does not. What stayed in Python is the one thing the browser
+cannot report — **which** slide is dragging the whole carousel down — with
+budgets measured by binary search in Chrome, not derived.
+
+Before writing an estimator, spend ten minutes checking whether the quantity is
+estimable at all. If the ground truth is cheap to query, query it.
+
+### 2026-09-16 — A skill prescribed tools it did not ship
+
+**Symptom.** `local-site-lift` told the agent to source images "real photo →
+Pexels → AI" and had **no script for any of it**. When I built a site with it, I
+pulled another skill's script out of git with `git show`. A user installing this
+skill alone could not have done that.
+
+**Cause.** The rule was written while the tooling lived elsewhere and felt
+available. It was not: skills install independently.
+
+**Fix.** Its own `scripts/imagens.py`. And the general check: **every capability
+a SKILL.md asks for must exist inside that skill's folder.** Prose that names an
+API the skill cannot call is a promise the agent will improvise badly — here it
+would have hit the Pexels 403 above and given up.
+
+### 2026-09-16 — A clean merge silently dropped three registrations
+
+**Symptom.** Two feature branches merged into `master` with **no conflict**. The
+result was missing the CI line for one skill, that skill's entry in
+`plugin.json`, and another skill's row in the README table.
+
+**Cause.** Both branches edited the same regions of `test.yml` and the README
+table. One branch had *deliberately removed* the carousel's CI line, because
+that folder did not exist on it. Git resolved the overlap on its own and
+preferred the removal. A skill would have shipped **outside the manifest and
+outside CI** — installed by nobody, tested by nothing.
+
+**Fix.** Never trust "no conflict" as "correct" when branches touch the same
+lists. After any merge, check the invariants instead of reading the diff:
+
+- every skill folder with a `SKILL.md` appears in `plugin.json`
+- every `scripts/*.py` appears in the CI workflow
+- every skill has a row in the root README
+
+Three one-line checks, and they caught what the merge hid.
+
+### 2026-09-16 — `Test-Path` reported a stale screenshot as a fresh one
+
+**Symptom.** A rendered page was reported as showing the new image. It showed
+the old one. The image file on disk was correct; the screenshot was 13 minutes
+old.
+
+**Cause.** The capture had failed, and the check was
+`if (Test-Path $png) { "OK" }`. A previous run's file was sitting there, so the
+check passed on an artefact the run never produced.
+
+**Fix.** Delete the output before generating it, and check the **timestamp**,
+not existence. This is recurring pattern 2 with a twist: the file was not just
+unverified, it was *someone else's*. Existence is not freshness.
+
+### 2026-09-16 — `Stop-Process chrome` killed the user's own browser
+
+**Symptom.** "caralho, para de ficar fechando o navegador, to tentando
+trabalhar em paralelo."
+
+**Cause.** Headless Chrome instances were piling up and breaking later
+screenshots, so the cleanup was `Get-Process chrome | Stop-Process -Force`.
+That matches every Chrome on the machine, including the windows the person is
+working in.
+
+**Fix.** Only kill what this session started, by filtering on the command line:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
+  Where-Object { $_.CommandLine -like "*--headless*" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+The machine is not yours. Any `Stop-Process`, `taskkill`, `pkill` or
+`rm -rf` by name hits the user's work too.
 
 ### 2026-09-15 — `--window-size` is a request, and Windows can refuse it
 
