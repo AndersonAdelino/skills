@@ -308,3 +308,32 @@ it as UTF-8. `silêncios` became `silÃªncios` across three files.
 
 **Fix.** `git checkout` to revert, then `[System.IO.File]::ReadAllText/WriteAllText`
 with UTF-8 specified on both ends.
+
+### 2026-09-15 — `--window-size` is a request, and Windows can refuse it
+
+Found while building a skill that was later abandoned. The trap outlives it,
+and it applies to anything here that renders with headless Chrome.
+
+**Symptom.** A page screenshotted at `--window-size=390,844` came back with text
+cut off mid-word at the right edge, looking exactly like a CSS overflow bug. The
+page was fine: measured in the browser, `scrollWidth` was 390 with nothing
+overflowing.
+
+**Cause.** Windows enforces a minimum window width, and `--headless=new` creates
+a real OS window. Chrome laid the page out in a **500px** viewport and wrote a
+390px PNG — a crop, presented as a phone rendering. The file had the right
+dimensions and the wrong content.
+
+**Fix.** Render inside an `<iframe>` sized exactly as requested, in a window wide
+enough for the OS. The iframe defines the viewport, so media queries, `vw` and
+`vh` all resolve correctly. Verified: viewport 390, `scrollWidth` 390.
+
+**What this means for `thread-carousel`.** It is not hit today: 1080px is far
+above the floor. What protects it is not luck but `png_dimensoes()` — it probes
+the delivered PNG instead of trusting the flag it passed. Any future render
+narrower than ~500px would silently crop, and only a check like that one would
+notice.
+
+The general shape, which is pattern 2 again: a flag states an intention, and only
+the artefact knows what happened. PNG dimensions matching what you asked for does
+not prove the browser laid the page out that way.
