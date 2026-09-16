@@ -61,9 +61,63 @@ O site sobe em hospedagem compartilhada e é aberto no 4G, no sol, com uma mão.
 - um `h1`, heading em ordem
 - tap targets de CTA com área folgada
 
+## Imagem: a ordem é obrigatória
+
+Foto de site de negócio é afirmação sobre o negócio. Uma recepção bonita gerada
+por IA diz "esta é a nossa recepção", e não é. Isso não é estilo, é mentira ao
+cliente do cliente.
+
+Procure nesta ordem e **pare na primeira que der certo**:
+
+| | Fonte | Quando usar |
+|---|---|---|
+| 1 | **Foto real do negócio** | sempre que existir. Perfil do Google, Instagram, Facebook, o site atual, ou o que o dono mandar. Ganha de tudo, mesmo mal enquadrada |
+| 2 | **Pexels** | foto real de gente real, licença livre, grátis. Cobre quase tudo |
+| 3 | **kie.ai** | só o que sobrou, e **só ilustrativo** |
+
+**O que a IA pode gerar:** cena ilustrativa que não afirma nada sobre aquele
+negócio. Uma família feliz, uma textura, um fundo abstrato, um ícone.
+
+**O que a IA não pode gerar, nunca:** a fachada, a recepção, a sala, o
+equipamento, a equipe, o produto. Nada que a pessoa vá ler como "é assim que é
+lá". Também não: pessoa real identificável, documento, print de notícia, selo,
+certificado.
+
+Antes do site subir, toda foto que não é do negócio ganha crédito no rodapé e
+uma linha no `PRODUCT.md` avisando o dono que aquilo é ilustrativo e pode ser
+trocado por foto real.
+
+Foto do Pexels tem autor. Credite no rodapé, ainda que a licença não exija.
+
+## Depoimento
+
+Só com nome e data reais. A fonte natural é o perfil do Google do negócio, que
+é público.
+
+**Leia as avaliações ruins também, e conte ao dono.** Elas quase sempre apontam
+um problema operacional que o site não conserta e não deve esconder. Se a
+queixa recorrente for "demora" ou "desorganização", isso é informação de
+negócio mais valiosa que o site inteiro, e a copy não pode prometer o contrário
+do que os clientes relatam.
+
+Nunca publique nota agregada que você não conseguiu verificar. Sem
+`aggregateRating` no schema por dedução.
+
 ## Cópia
 
 Palavra é design. Frase curta. Voz ativa. CTA diz o que acontece: "Chamar no WhatsApp", "Ver no mapa".
+
+**Travessão é proibido.** Nunca `—` nem `–` em texto que o cliente lê. É a
+pontuação que mais denuncia texto gerado, e ninguém escreve assim. Onde daria
+vontade de usar, quebre a frase:
+
+| Não | Sim |
+|---|---|
+| `Rua Manoel Felipe, 23 — CEP 59300-000` | `Rua Manoel Felipe, 23. CEP 59300-000` |
+| `Clínica Fácil — consultas e exames` | `Clínica Fácil: consultas e exames` |
+
+Ponto, vírgula ou dois-pontos. O ponto médio (`A · B · C`) também não serve:
+já está na lista de defaults que denunciam site gerado.
 
 Não venda o sistema. Fale o que o cliente ganha na cidade dele. Horário, bairro e "fica em frente a X" valem mais que slogan.
 

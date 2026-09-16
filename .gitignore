@@ -32,3 +32,6 @@ _tmp/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# trabalho de cliente: CNPJ, telefone e endereco nao entram no repo publico
+clientes/

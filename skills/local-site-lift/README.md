@@ -1,7 +1,7 @@
 # local-site-lift
 
-Pega o site feio de um comércio local, reconstrói em HTML estático e sobe no
-cPanel da HostGator com token no `.env`.
+Pega o site feio de um comércio local e reconstrói como página estática rápida,
+decidindo a direção visual **antes** de escrever código.
 
 O trabalho não é "fazer um site bonito". É colocar o comércio no ar com um
 caminho óbvio até o WhatsApp.
@@ -9,17 +9,21 @@ caminho óbvio até o WhatsApp.
 ```
 Melhora o site da Padaria São José em Currais Novos/RN.
 WhatsApp 84 99999-1234, abre 6h-19h, fecha domingo, Rua Grande 120, Centro.
-Não faz deploy ainda.
 ```
 
 ## O que sai
 
 ```
-PRODUCT.md        o brief do negócio
-ANTES.md          o que o site atual fazia de errado
-DESIGN.md         paleta, tipos, conceito de layout — decidido antes do código
-dist/             o site: HTML + CSS + JS mínimo + imagens
+clientes/padaria-sao-jose/
+├── PRODUCT.md     o brief, com o que precisa ser confirmado pelo dono
+├── ANTES.md       a auditoria do site atual, com números medidos
+├── DESIGN.md      paleta, tipos, layout, e a checagem contra os defaults de IA
+├── dist/          o site: HTML + CSS + JS mínimo + imagens
+└── origem/        o que foi baixado do site antigo
 ```
+
+**Termina aqui.** Publicar é da skill [cpanel-deploy](../cpanel-deploy/) — o
+`dist/` é estático puro e sobe em qualquer lugar que sirva arquivo.
 
 ## Instalação
 
@@ -36,50 +40,34 @@ Ou, com o marketplace:
 
 ## Dependências
 
-**Python 3.** Só isso — o deploy usa a biblioteca padrão, sem `pip install`.
-O site que ela gera não precisa de build: é HTML, CSS e um pouco de JS.
+**Python 3** (só para servir o preview) e um navegador. Nada de `pip install`,
+nada de conta em lugar nenhum, nenhum token.
 
-Nada de React, Next ou bundler. Hospedagem compartilhada não é lugar disso.
+O site que ela gera não precisa de build: é HTML, CSS e um pouco de JS. Nada de
+React, Next ou bundler — hospedagem compartilhada não é lugar disso.
 
-## Deploy
+## Como ela decide o visual
 
-```bash
-cp .claude/skills/local-site-lift/assets/env.example .env
-# preencha host, usuário e token do cPanel
-python .claude/skills/local-site-lift/scripts/deploy-cpanel.py --dry-run
-python .claude/skills/local-site-lift/scripts/deploy-cpanel.py
-```
+Primeiro o `DESIGN.md`, depois o código. A direção sai do negócio real, não do
+gosto da skill: *padaria não parece fintech, oficina não parece spa*.
 
-Token: cPanel → Segurança → Gerenciar tokens de API. O valor aparece uma vez.
-Não grave vídeo com o token na tela.
+`references/design-floor.md` tem a lista de **defaults que denunciam site
+gerado** — creme quente com serif e terracota, fundo preto com um neon, cards
+idênticos com a mesma sombra, eyebrow em caixa alta, seta `→` em todo botão,
+Inter como personalidade, glassmorphism. O plano é revisado contra essa lista
+antes de virar HTML.
 
-### O que o deploy confere sozinho
+## O que ela não inventa
 
-| Checagem | Por quê |
-|---|---|
-| `.env` não está no git | token commitado é irreversível: quem clonou já tem |
-| Lê só as chaves do cPanel, não o `.env` inteiro | o `.env` do cliente costuma ter credencial de outra coisa |
-| O cPanel aceitou cada arquivo, lendo o JSON de verdade | ver abaixo |
-| Já existe `index.php` na pasta remota | ele ganha do `index.html` novo e deixa a home velha no ar |
-| Alguma imagem passa de 500 KB | o site abre no 4G, no sol, com uma mão |
-| **A URL publicada abriu e é a home nova** | comparando o `<title>` que subiu com o que a URL responde |
+- CNPJ, endereço, horário, telefone: pede ou deixa placeholder explícito
+- avaliação, selo, "mais de X clientes": só com fonte
+- **foto**: a ordem é foto real do negócio → Pexels → IA, e **IA só para
+  ilustração**. Nada de recepção, fachada, sala ou equipe gerados, que afirmam
+  como é o lugar sem ser
+- depoimento: só real, com nome e data, do perfil público do Google
 
-O token nunca é impresso, e não vai por linha de comando — só no header da
-requisição, porque argumento de processo aparece em `ps aux`.
-
-### Por que o status do cPanel não pode ser lido por grep
-
-O `upload_files` do UAPI devolve um status **por arquivo, dentro de `data`**.
-Então uma resposta de erro pode conter `"status":1` aninhado:
-
-```json
-{"errors":["token invalido"],"status":0,"data":[{"file":"a.jpg","status":1}]}
-```
-
-A primeira versão deste deploy (em bash) decidia sucesso com
-`grep '"status":1'` na resposta inteira, e lia isso como sucesso: imprimia `ok`
-para cada arquivo e terminava com "Pronto", sem ter subido nada. As cinco
-respostas que quebravam estão fixadas em `--autoteste`.
+E lê as avaliações **ruins** também, para contar ao dono. Costumam apontar um
+problema de operação que o site não conserta e não deve esconder.
 
 ## O que entra e o que não entra
 
@@ -87,28 +75,15 @@ respostas que quebravam estão fixadas em `--autoteste`.
 profissional liberal. WhatsApp, mapa, horário, schema `LocalBusiness`.
 
 **Não entra:** tema WordPress, WooCommerce, carrinho, checkout, área logada,
-blog com CMS, dashboard, app, Next na Vercel. Isso é outro produto — a skill
-diz o limite e oferece só a vitrine.
+blog com CMS, dashboard, app. Isso é outro produto — a skill diz o limite e
+oferece só a vitrine.
 
 ## Limites conhecidos
 
-- **Não apaga nada no servidor.** Sobrescreve arquivo por arquivo. Lixo de
-  instalador antigo continua lá até você limpar pelo cPanel
-- **Um arquivo por requisição.** Site com 40 imagens são 40 viagens — funciona,
-  mas não é rápido
-- **Não gera conteúdo do negócio.** CNPJ, endereço, horário, foto e depoimento
-  vêm de você. A skill deixa placeholder explícito em vez de inventar
-- **`--inseguro` existe** para o caso de o cPanel responder com o certificado do
-  servidor em vez do domínio. O token viaja nessa conexão: só use quando o erro
-  for esse
-
-## Teste
-
-```bash
-python scripts/deploy-cpanel.py --autoteste
-```
-
-Sem rede, sem chave, sem tocar em servidor nenhum. Roda no CI a cada push.
+- **O brief assume um endereço.** Negócio com várias unidades funciona, mas o
+  template não tem lugar para isso ainda
+- **Não gera conteúdo do negócio.** Foto, CNPJ, horário e depoimento vêm de você
+- **Não publica.** Ver [cpanel-deploy](../cpanel-deploy/)
 
 ## Licença
 

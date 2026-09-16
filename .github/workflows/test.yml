@@ -14,5 +14,4 @@ jobs:
       # heuristics, so they stay fast and can't break on a dependency.
       # Add a line here for every new skill that ships a script.
       - run: python skills/cut-silence/scripts/remove-fillers.py --autoteste
-      - run: python skills/local-site-lift/scripts/deploy-cpanel.py --autoteste
-      - run: python skills/thread-carousel/scripts/build-carousel.py --autoteste
+      - run: python skills/cpanel-deploy/scripts/deploy-cpanel.py --autoteste

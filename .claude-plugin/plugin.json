@@ -1,7 +1,7 @@
 {
   "name": "adelino-skills",
   "version": "0.1.0",
-  "description": "Skills for content production and client work, battle-tested in real jobs: silence and filler-word cutting for talking-head video, Instagram carousels in the Twitter-thread style, and static sites for local businesses deployed to cPanel.",
+  "description": "Skills for content production and client work, battle-tested in real jobs: silence and filler-word cutting for talking-head video, static sites for local businesses, and publishing them to cPanel with a verified deploy.",
   "author": {
     "name": "Anderson Adelino",
     "url": "https://www.youtube.com/@oandersonadelino"
@@ -19,9 +19,13 @@
     "carrossel",
     "site",
     "cpanel",
-    "pt-br"
+    "pt-br",
+    "deploy",
+    "hostgator"
   ],
   "skills": [
-    "./skills/cut-silence"
+    "./skills/cpanel-deploy",
+    "./skills/cut-silence",
+    "./skills/local-site-lift"
   ]
 }
