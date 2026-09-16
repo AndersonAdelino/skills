@@ -65,8 +65,16 @@ run `npx skills update <name> -g -y`.
 ## Before committing
 
 ```bash
+python scripts/validar-skills.py            # invariantes do repo
 python skills/<name>/scripts/<script>.py --autoteste
 ```
+
+`validar-skills.py` confere o que não aparece lendo diff: frontmatter que o
+YAML aceita, e toda skill presente no `plugin.json`, no README e no CI.
+
+**Um `: ` solto dentro da `description` faz a skill parar de carregar**, sem
+erro nenhum — ela só some da lista. Use `description: >-` e quebre o texto
+indentado abaixo; aí dois-pontos, aspas e acento passam sem escapar.
 
 Non-trivial logic leaves one runnable check behind. When a real bug is fixed,
 **the real case becomes the test**, with its actual numbers — so nobody loosens a

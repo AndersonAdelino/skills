@@ -425,6 +425,32 @@ a SKILL.md asks for must exist inside that skill's folder.** Prose that names an
 API the skill cannot call is a promise the agent will improvise badly — here it
 would have hit the Pexels 403 above and given up.
 
+### 2026-09-16 — Um `:` na descricao fez duas skills pararem de carregar
+
+**Symptom.** In another session, typing `/local-site-lift <url>` did not run the
+skill. The agent went hunting for the skill's files instead, found nothing
+through the junction, and gave up.
+
+**Cause.** The frontmatter was not valid YAML. The description ended with
+`Esta skill NÃO publica: para subir no cPanel...` and a `: ` inside an unquoted
+scalar makes YAML read it as a nested key. A second skill broke the same week on
+`argument-hint: [--dry-run] [--forcar]`, which YAML reads as a flow sequence.
+
+Both were edits made that same day, by me.
+
+**The tell I had and missed.** The skill list in my own session had quietly
+degraded from the full description to just `local-site-lift: Local Site Lift` —
+the H1 heading, the loader's fallback. I saw it and read it as cosmetic.
+**A skill that stops loading produces no error anywhere. It just is not there.**
+
+**Fix.** `description: >-` with the text indented below: colons, quotes and
+accents all pass unescaped. `argument-hint` quoted.
+
+And `scripts/validar-skills.py`, in CI before the self-tests, because none of
+this is visible in a diff. It checks the frontmatter parses, and that every
+skill appears in `plugin.json`, in the README table and in the workflow — the
+same invariants the clean merge above had broken.
+
 ### 2026-09-16 — A clean merge silently dropped three registrations
 
 **Symptom.** Two feature branches merged into `master` with **no conflict**. The

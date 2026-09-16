@@ -13,6 +13,10 @@ jobs:
       # no pip install on purpose: the self-tests only touch the stdlib
       # heuristics, so they stay fast and can't break on a dependency.
       # Add a line here for every new skill that ships a script.
+      # invariantes do repo antes dos autotestes: frontmatter que nao
+      # parseia faz a skill sumir da lista sem erro nenhum
+      - run: python scripts/validar-skills.py --autoteste
+      - run: python scripts/validar-skills.py
       - run: python skills/cut-silence/scripts/remove-fillers.py --autoteste
       - run: python skills/cpanel-deploy/scripts/deploy-cpanel.py --autoteste
       - run: python skills/local-site-lift/scripts/imagens.py --autoteste

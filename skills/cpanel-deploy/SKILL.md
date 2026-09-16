@@ -1,7 +1,18 @@
 ---
 name: cpanel-deploy
-description: Publica uma pasta de site estático num cPanel (HostGator e equivalentes) via API, com token no .env, e confere no fim se o endereço no ar é mesmo a página nova. Ativa em "sobe no cPanel", "publica no HostGator", "deploy no public_html", "manda o dist pro servidor", "coloca o site no ar", "atualiza o site do cliente", "publica essa pasta", "deploy to cPanel", "upload to public_html". Serve qualquer pasta pronta — feita à mão, por outra skill, ou saída de Hugo, Astro, Vite, Eleventy. NÃO use para hospedagem que não seja cPanel (Vercel, Netlify, S3, FTP puro), nem para aplicação que precise de servidor rodando (Next em modo server, Node, PHP dinâmico, WordPress) — este script só copia arquivos. Se não houver uma pasta pronta para publicar, o trabalho é construir o site primeiro.
-argument-hint: [--dry-run] [--forcar]
+description: >-
+  Publica uma pasta de site estático num cPanel (HostGator e equivalentes) via
+  API, com token no .env, e confere no fim se o endereço no ar é mesmo a
+  página nova. Ativa em "sobe no cPanel", "publica no HostGator", "deploy no
+  public_html", "manda o dist pro servidor", "coloca o site no ar", "atualiza
+  o site do cliente", "publica essa pasta", "deploy to cPanel", "upload to
+  public_html". Serve qualquer pasta pronta — feita à mão, por outra skill, ou
+  saída de Hugo, Astro, Vite, Eleventy. NÃO use para hospedagem que não seja
+  cPanel (Vercel, Netlify, S3, FTP puro), nem para aplicação que precise de
+  servidor rodando (Next em modo server, Node, PHP dinâmico, WordPress) — este
+  script só copia arquivos. Se não houver uma pasta pronta para publicar, o
+  trabalho é construir o site primeiro.
+argument-hint: "[--dry-run] [--forcar]"
 license: MIT
 ---
 

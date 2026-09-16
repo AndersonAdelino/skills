@@ -1,7 +1,18 @@
 ---
 name: thread-carousel
-description: Cria carrossel para Instagram no estilo thread do Twitter — fundo branco, avatar e @, texto preto em parágrafos curtos, foto/card de notícia/citação por slide. A partir de um tema, pesquisa (quando for factual), escreve a copy, resolve as imagens e entrega PNG 1080×1350 pronto pra postar. Ativa em "cria um carrossel", "faz um carrossel sobre X", "carrossel estilo thread", "carrossel de print de tweet", "monta um carrossel pro Instagram", "create a carousel", "twitter thread carousel". NÃO use para post único de feed, story, Reels, legenda solta ou carrossel com identidade visual própria (fundo colorido, logo, template de marca) — este formato é só o branco estilo thread. Se o pedido for vago como "faz um post", pergunte se é carrossel antes de acionar.
-argument-hint: <tema> [--slides N]
+description: >-
+  Cria carrossel para Instagram no estilo thread do Twitter — fundo branco,
+  avatar e @, texto preto em parágrafos curtos, foto/card de notícia/citação
+  por slide. A partir de um tema, pesquisa (quando for factual), escreve a
+  copy, resolve as imagens e entrega PNG 1080×1350 pronto pra postar. Ativa em
+  "cria um carrossel", "faz um carrossel sobre X", "carrossel estilo thread",
+  "carrossel de print de tweet", "monta um carrossel pro Instagram", "create a
+  carousel", "twitter thread carousel". NÃO use para post único de feed,
+  story, Reels, legenda solta ou carrossel com identidade visual própria
+  (fundo colorido, logo, template de marca) — este formato é só o branco
+  estilo thread. Se o pedido for vago como "faz um post", pergunte se é
+  carrossel antes de acionar.
+argument-hint: "<tema> [--slides N]"
 license: MIT
 ---
 

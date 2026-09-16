@@ -1,7 +1,18 @@
 ---
 name: cut-silence
-description: Cuts silence from ONE video with auto-editor and normalizes the audio to -14 LUFS. With the `--fillers` flag, also removes filler words, stutters and duplicate takes (the speaker restarting a segment after an error), using word-level transcription plus agent judgment. Triggers "cut the silences", "remove the pauses from this video", "trim the dead air", "speed this video up by cutting pauses", "corta os silêncios", "tira as pausas do vídeo", "tira os tempos mortos", "tira os né/tá do vídeo", "corta as gagueiras". Do NOT use for creative editing (choosing takes, burned-in captions, color grading, overlays, cutting by content) — this skill only removes silence and parasitic sound. If the request is vague like "edit my video", ask what exactly before triggering.
-argument-hint: <video-path> [--fillers]
+description: >-
+  Cuts silence from ONE video with auto-editor and normalizes the audio to -14
+  LUFS. With the `--fillers` flag, also removes filler words, stutters and
+  duplicate takes (the speaker restarting a segment after an error), using
+  word-level transcription plus agent judgment. Triggers "cut the silences",
+  "remove the pauses from this video", "trim the dead air", "speed this video
+  up by cutting pauses", "corta os silêncios", "tira as pausas do vídeo",
+  "tira os tempos mortos", "tira os né/tá do vídeo", "corta as gagueiras". Do
+  NOT use for creative editing (choosing takes, burned-in captions, color
+  grading, overlays, cutting by content) — this skill only removes silence and
+  parasitic sound. If the request is vague like "edit my video", ask what
+  exactly before triggering.
+argument-hint: "<video-path> [--fillers]"
 license: MIT
 ---
 

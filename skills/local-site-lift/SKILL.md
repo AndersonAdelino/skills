@@ -1,7 +1,19 @@
 ---
 name: local-site-lift
-description: Refaz o site feio de um negócio local como página estática rápida, decidindo a direção visual antes de escrever código. Entrega brief, auditoria do site atual e a pasta dist/ pronta. Ativa em "melhora o site da padaria", "site feio de comércio", "refaz a vitrine da oficina", "landing page pro meu salão", "site de clínica/restaurante/pet shop/advogado/barbearia", "meu site é lento e feio", "quero um site simples com WhatsApp", "redesign a local business site". NÃO use para tema WordPress, loja com carrinho ou checkout, área logada, blog com CMS, dashboard, app, SaaS, painel admin, nem projeto Next/React que precise de servidor — diga o limite e ofereça só a vitrine estática. Esta skill NÃO publica: para subir no cPanel, o trabalho é da skill cpanel-deploy. Se o pedido for vago como "faz um site", pergunte que negócio é e se tem endereço físico antes de acionar.
-argument-hint: <nome do negócio + cidade> [URL do site atual]
+description: >-
+  Refaz o site feio de um negócio local como página estática rápida, decidindo
+  a direção visual antes de escrever código. Entrega brief, auditoria do site
+  atual e a pasta dist/ pronta. Ativa em "melhora o site da padaria", "site
+  feio de comércio", "refaz a vitrine da oficina", "landing page pro meu
+  salão", "site de clínica/restaurante/pet shop/advogado/barbearia", "meu site
+  é lento e feio", "quero um site simples com WhatsApp", "redesign a local
+  business site". NÃO use para tema WordPress, loja com carrinho ou checkout,
+  área logada, blog com CMS, dashboard, app, SaaS, painel admin, nem projeto
+  Next/React que precise de servidor — diga o limite e ofereça só a vitrine
+  estática. Esta skill NÃO publica: para subir no cPanel, o trabalho é da
+  skill cpanel-deploy. Se o pedido for vago como "faz um site", pergunte que
+  negócio é e se tem endereço físico antes de acionar.
+argument-hint: "<nome do negócio + cidade> [URL do site atual]"
 license: MIT
 ---
 
