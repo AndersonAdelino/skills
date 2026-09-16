@@ -104,8 +104,21 @@ Siga nesta ordem. Não pule o brief, e não publique nada antes do usuário apro
    **Antes de `gerar`, mostre o prompt e espere o ok:** custa crédito.
 
 6. Build estático — gere o site em `dist/` (HTML + CSS + JS mínimo + imagens). Mobile primeiro. Uma oferta. Um CTA principal.
-7. Checklist de conversão — confira `references/negocio-local-br.md` antes de chamar pronto.
-8. Preview — sirva `dist/` localmente e peça o ok do usuário:
+7. Aferir o artesanato — **antes de mostrar qualquer coisa ao usuário**:
+
+   ```bash
+   python scripts/aferir.py dist/
+   ```
+
+   Ele mede o que separa site de agência de site amador: tamanho do `h1`,
+   contraste da escala, estados de interação, grade no desktop, rodapé. Sai com
+   código 1 e diz o número de cada falha. **Corrija tudo antes do preview.**
+
+   Isso existe porque duas entregas saíram planas e com metade da tela vazia,
+   seguindo um `design-floor.md` que só listava proibições.
+
+8. Checklist de conversão — confira `references/negocio-local-br.md` antes de chamar pronto.
+9. Preview — sirva `dist/` localmente e peça o ok do usuário:
 
    ```bash
    python -m http.server 8080 --directory dist
@@ -114,7 +127,7 @@ Siga nesta ordem. Não pule o brief, e não publique nada antes do usuário apro
    Abra `http://localhost:8080`. Confira também na largura de 360px (DevTools,
    modo dispositivo) antes de mostrar — este site vive no celular.
 
-9. Publicar — só com ok explícito, e é outra skill. Peça a **cpanel-deploy**,
+10. Publicar — só com ok explícito, e é outra skill. Peça a **cpanel-deploy**,
    que sobe a pasta `dist/` num cPanel e confere se o endereço no ar é mesmo a
    página nova. Se o usuário hospeda em outro lugar (Vercel, Netlify), o
    `dist/` é estático puro e serve igual.
@@ -138,6 +151,8 @@ O brief vence o gosto da skill. Padaria não parece fintech. Oficina não parece
 
 Empilhe pouco. Hospedagem compartilhada não é lugar de React, Next ou bundler obrigatório.
 
+- **leia o chão numérico do `design-floor.md` antes de escrever CSS.** `h1` de
+  3,5rem, no máximo 8 tamanhos de fonte, grade de verdade no desktop
 - `dist/index.html` como entrada
 - CSS próprio em arquivo separado, variáveis na raiz
 - JS só para menu mobile, WhatsApp flutuante ou mapa

@@ -1,5 +1,49 @@
 # Design floor
 
+## Antes de tudo: contenção não é vazio
+
+Este documento já foi só uma lista de proibições, e o resultado saiu duas vezes:
+site plano, sem contraste, com metade da tela vazia. Um agente lendo só
+"evite isto" joga seguro, e seguro parece barato.
+
+**O chão abaixo é numérico e medido.** Rode antes de mostrar qualquer coisa:
+
+```bash
+python scripts/aferir.py dist/
+```
+
+| | Mínimo | Por quê |
+|---|---|---|
+| `h1` no desktop | **3,5rem** (56px) | 2,5rem num monitor lê como subtítulo |
+| `h1` ÷ corpo | **2,6×**, mire 3× | abaixo disso não há hierarquia, só tamanhos parecidos |
+| Tamanhos de fonte | **no máximo 8**, cada um 12% maior que o anterior | 10 tamanhos com 7 entre 0,85 e 1,15rem é ruído, não escala |
+| Estados `:hover` | **4** | com 2 em 75 regras, nada responde ao cursor |
+| `transition` | **3** | troca seca de estado é o que mais denuncia amador |
+| Grade de várias colunas no desktop | **1** | sem isso o layout largo é a coluna do celular esticada |
+| `<footer>` | existe | site sem rodapé termina no ar |
+
+**Nunca ponha `max-width` em `ch` num título.** `h1 { max-width: 18ch }` foi o
+defeito central de um site real: o título quebrava em três linhas curtas e
+metade da tela ficava vazia ao lado. Título respira em largura, não em coluna
+de leitura. `ch` é para parágrafo.
+
+Passar no chão não faz um site bonito. **Falhar garante um que parece barato.**
+
+## O desktop não é o celular esticado
+
+"Mobile primeiro" é ordem de construção, não desculpa para nunca desenhar o
+desktop. Numa tela de 1440px:
+
+- o conteúdo usa a largura. Uma coluna de 420px alinhada à esquerda, com o
+  resto vazio, é o erro mais visível que existe
+- pelo menos uma seção tem duas colunas de verdade: texto de um lado, imagem
+  ou lista do outro
+- o herói ocupa a primeira tela com intenção: título grande, uma linha de
+  apoio, um botão, e uma imagem que não é enfeite
+- seções alternam fundo, para o olho saber onde uma acaba
+
+
+
 Direção visual destilada para site de comércio local. Use como chão de qualidade, não como lista de efeitos.
 
 Inspirado em técnicas de direção de frontend (escolha deliberada, assunto primeiro, um gesto ousado) e em craft de produção (um ciclo de inspeção, anti-padrão, acessível no celular). Reescrito para este método. Não copie skills de terceiros.

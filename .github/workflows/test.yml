@@ -21,4 +21,5 @@ jobs:
       - run: python skills/cpanel-deploy/scripts/deploy-cpanel.py --autoteste
       - run: python skills/local-site-lift/scripts/imagens.py --autoteste
       - run: python skills/local-site-lift/scripts/negocio.py --autoteste
+      - run: python skills/local-site-lift/scripts/aferir.py --autoteste
       - run: python skills/thread-carousel/scripts/build-carousel.py --autoteste
