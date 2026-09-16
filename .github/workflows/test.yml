@@ -10,6 +10,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # no pip install on purpose: the self-test only touches the stdlib
-      # heuristics, so it stays fast and can't break on a dependency
+      # no pip install on purpose: the self-tests only touch the stdlib
+      # heuristics, so they stay fast and can't break on a dependency.
+      # Add a line here for every new skill that ships a script.
       - run: python skills/cut-silence/scripts/remove-fillers.py --autoteste
+      - run: python skills/local-site-lift/scripts/deploy-cpanel.py --autoteste
+      - run: python skills/thread-carousel/scripts/build-carousel.py --autoteste

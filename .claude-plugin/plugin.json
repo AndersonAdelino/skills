@@ -1,7 +1,7 @@
 {
   "name": "adelino-skills",
   "version": "0.1.0",
-  "description": "Skills for video editing and content production, battle-tested in real work: silence cutting with waveform-aligned cuts, loudness normalization to -14 LUFS, and removal of filler words, stutters and abandoned takes.",
+  "description": "Skills for content production and client work, battle-tested in real jobs: silence and filler-word cutting for talking-head video, Instagram carousels in the Twitter-thread style, and static sites for local businesses deployed to cPanel.",
   "author": {
     "name": "Anderson Adelino",
     "url": "https://www.youtube.com/@oandersonadelino"
@@ -15,6 +15,10 @@
     "audio",
     "edicao",
     "conteudo",
+    "instagram",
+    "carrossel",
+    "site",
+    "cpanel",
     "pt-br"
   ],
   "skills": [
