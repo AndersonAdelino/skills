@@ -184,6 +184,48 @@ transformação — deslizar, escalar, parallax, revelação no scroll.
 O script tem que rodar no `<head>`, antes do CSS. Depois, o conteúdo já pintou
 e a troca pisca.
 
+### Revelação no scroll: duas armadilhas que deixam o site em branco
+
+**1. O CSS nunca esconde nada sozinho.** Se `.anima { opacity: 0 }` estiver no
+arquivo e o JS falhar, não for baixado ou o observer não disparar, o site fica
+**em branco**. Quem esconde é o JS:
+
+```js
+raiz.setAttribute('data-anima', '');   // só agora pode sumir: há JS para revelar
+```
+
+```css
+.anima { opacity: 1; }                        /* sem JS, visível */
+html[data-anima] .anima { opacity: 0; transform: translateY(26px); }
+html[data-anima] .visivel .anima { opacity: 1; transform: none; transition: … }
+```
+
+E uma rede de segurança que **remove o atributo da raiz**, desligando toda
+regra de esconder de uma vez, sem depender de classe certa em elemento nenhum:
+
+```js
+setTimeout(function () { raiz.removeAttribute('data-anima'); }, 2600);
+```
+
+**2. Não confie no observer para o que já está na tela.** O herói está sempre
+visível no carregamento, e ficar refém de um callback é o que o deixou
+invisível num teste real. Revele na segunda pintura o que já está no viewport,
+e use o observer só para o resto:
+
+```js
+requestAnimationFrame(function () { requestAnimationFrame(function () {
+  secoes.forEach(function (s) {
+    var r = s.getBoundingClientRect();
+    if (r.top < innerHeight && r.bottom > 0) revelar(s);
+  });
+}); });
+```
+
+**Cuidado com a cascata.** Uma regra `.heroi .anima { opacity: 0 }` escrita
+*depois* da regra que revela tem a **mesma especificidade** e ganha por vir
+depois: o herói some para sempre. Esconder e revelar, dois passos, sem exceção
+por seção.
+
 Fora isso: motion responde a um gesto (abrir menu, passar o cursor) ou a um
 único momento de entrada. Fade e slide em **toda** seção é default de IA.
 
