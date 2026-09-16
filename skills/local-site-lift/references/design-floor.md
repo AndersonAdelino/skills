@@ -74,10 +74,22 @@ escreveu. Ele nunca troca de fonte sozinho.
 ### Primeiro: essa imagem afirma algo sobre este negócio?
 
 Fachada, recepção, sala, equipamento, equipe, o produto que eles fazem, o prato
-que eles servem. Se sim, ela **só pode ser foto real deles**: perfil do Google,
-Instagram, Facebook, o site atual, ou o que o dono mandar. Vale mesmo mal
+que eles servem. Se sim, ela **só pode ser foto real deles**. Vale mesmo mal
 enquadrada. Não existindo foto real, **a seção não leva imagem** — um bloco de
 texto honesto é melhor que uma foto que mente.
+
+Onde procurar, em ordem de quem entrega:
+
+| | |
+|---|---|
+| **Perfil do Google** | `scripts/negocio.py`. A única que funcionou no primeiro site real |
+| O dono | pede. É a melhor, e a que ninguém lembra de pedir |
+| Site atual | confira: costuma ser banco de imagem. No primeiro teste, era |
+| Instagram, Facebook | bloqueiam requisição sem login |
+
+Foto do perfil do Google é mistura de foto do dono e de cliente, e pode ter
+rosto de funcionário. **Rosto identificável não se publica sem consentimento.**
+Toda foto daí é candidata marcada no `PRODUCT.md`, nunca publicação direta.
 
 Nunca gere: pessoa real identificável, documento, print de notícia, selo,
 certificado, avaliação.

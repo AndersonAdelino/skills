@@ -16,6 +16,7 @@ WhatsApp 84 99999-1234, abre 6h-19h, fecha domingo, Rua Grande 120, Centro.
 ```
 clientes/padaria-sao-jose/
 ├── PRODUCT.md     o brief, com o que precisa ser confirmado pelo dono
+├── google.json    o perfil do Google: NAP, horário, nota, avaliações
 ├── ANTES.md       a auditoria do site atual, com números medidos
 ├── DESIGN.md      paleta, tipos, layout, e a checagem contra os defaults de IA
 ├── dist/          o site: HTML + CSS + JS mínimo + imagens
@@ -46,7 +47,8 @@ Opcionais, só para imagens:
 
 | | Para quê | Sem ele |
 |---|---|---|
-| `PEXELS_API_KEY` | buscar foto real, grátis | você fornece as imagens |
+| `APIFY_TOKEN` | perfil do negócio no Google: **foto real do lugar**, nota verificada, horário e endereço do dono | sem foto real e sem nota |
+| `PEXELS_API_KEY` | buscar foto ilustrativa, grátis | você fornece as imagens |
 | `KIE_API_KEY` | gerar imagem ilustrativa | idem |
 | `ffmpeg` | redimensionar e converter para webp | a imagem sobe como veio, e o script avisa o peso |
 
@@ -74,6 +76,11 @@ antes de virar HTML.
   mundo real, **IA** quando é específico da ideia do site. Quem decide é o
   agente; o `imagens.py` só executa
 - depoimento: só real, com nome e data, do perfil público do Google
+
+**Confronta o site com o perfil do Google do negócio**, que é mantido pelo
+dono. No primeiro site real isso pegou um endereço errado (`23` onde era `231`)
+e um sábado anunciado como aberto que o Google marca fechado. Divergência vira
+`[CONFIRMAR]`, não escolha do agente.
 
 E lê as avaliações **ruins** também, para contar ao dono. Costumam apontar um
 problema de operação que o site não conserta e não deve esconder.

@@ -50,8 +50,34 @@ Siga nesta ordem. Não pule o brief, e não publique nada antes do usuário apro
 
 1. Brief do negócio — copie `assets/PRODUCT.template.md` para `PRODUCT.md` e preencha. Leia `references/negocio-local-br.md`.
 2. Captura do site atual — se houver URL, abra, leia o HTML visível, anote textos reais, fotos úteis, páginas e o que falha (lento, ilegível no celular, sem CTA, endereço errado). Guarde o "antes" em `ANTES.md`.
-3. Direção visual — leia `references/design-floor.md`. Escreva em `DESIGN.md` uma paleta de 4 a 6 cores nomeadas, um ou dois tipos, o conceito de layout em uma frase e o elemento que carrega a personalidade. Revise o plano contra os defaults de IA listados no floor. Só então gere código.
-4. Imagens — leia a seção "Imagem" do `design-floor.md`. **A decisão é sua, o
+3. Perfil do Google — se houver `APIFY_TOKEN`, consulte. É a **única fonte
+   acessível de foto real do lugar**, e o perfil é mantido pelo dono, então
+   costuma estar mais certo que o site.
+
+   ```bash
+   python scripts/negocio.py consultar "<nome> <cidade>" --out google.json
+   python scripts/negocio.py fotos google.json --out origem/google --n 4
+   ```
+
+   **Confronte com o `PRODUCT.md` e mostre as divergências ao usuário.** No
+   primeiro site real o Google trazia `231` onde o site dizia `23`, e marcava
+   sábado como fechado enquanto o site anunciava 7h30 às 12h. Endereço errado
+   manda gente para o lugar errado: divergência é assunto do dono, não escolha
+   sua.
+
+   **Nota abaixo de 4,0 não vira selo no site**, e `aggregateRating` só entra
+   no schema com o número verificado. Leia as avaliações de uma estrela e conte
+   ao dono o que elas repetem: costuma ser problema de operação que o site não
+   conserta e não deve esconder.
+
+   **Olhe as fotos antes de usar.** São mistura de foto do dono e de cliente, e
+   podem ter rosto de funcionário, que exige consentimento. Toda foto daí é
+   candidata marcada no `PRODUCT.md`, nunca publicação direta.
+
+   Sem o token, pule: o site sai igual, só sem foto real e sem nota.
+
+4. Direção visual — leia `references/design-floor.md`. Escreva em `DESIGN.md` uma paleta de 4 a 6 cores nomeadas, um ou dois tipos, o conceito de layout em uma frase e o elemento que carrega a personalidade. Revise o plano contra os defaults de IA listados no floor. Só então gere código.
+5. Imagens — leia a seção "Imagem" do `design-floor.md`. **A decisão é sua, o
    `scripts/imagens.py` só executa.** Primeiro: a imagem afirma algo sobre o
    negócio (fachada, sala, equipe)? Então só foto real deles, ou nenhuma. Se
    não: busque no Pexels quando for assunto comum do mundo real, e gere na
@@ -65,9 +91,9 @@ Siga nesta ordem. Não pule o brief, e não publique nada antes do usuário apro
 
    **Antes de `gerar`, mostre o prompt e espere o ok:** custa crédito.
 
-5. Build estático — gere o site em `dist/` (HTML + CSS + JS mínimo + imagens). Mobile primeiro. Uma oferta. Um CTA principal.
-6. Checklist de conversão — confira `references/negocio-local-br.md` antes de chamar pronto.
-7. Preview — sirva `dist/` localmente e peça o ok do usuário:
+6. Build estático — gere o site em `dist/` (HTML + CSS + JS mínimo + imagens). Mobile primeiro. Uma oferta. Um CTA principal.
+7. Checklist de conversão — confira `references/negocio-local-br.md` antes de chamar pronto.
+8. Preview — sirva `dist/` localmente e peça o ok do usuário:
 
    ```bash
    python -m http.server 8080 --directory dist
@@ -76,7 +102,7 @@ Siga nesta ordem. Não pule o brief, e não publique nada antes do usuário apro
    Abra `http://localhost:8080`. Confira também na largura de 360px (DevTools,
    modo dispositivo) antes de mostrar — este site vive no celular.
 
-8. Publicar — só com ok explícito, e é outra skill. Peça a **cpanel-deploy**,
+9. Publicar — só com ok explícito, e é outra skill. Peça a **cpanel-deploy**,
    que sobe a pasta `dist/` num cPanel e confere se o endereço no ar é mesmo a
    página nova. Se o usuário hospeda em outro lugar (Vercel, Netlify), o
    `dist/` é estático puro e serve igual.
