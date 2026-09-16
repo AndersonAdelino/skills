@@ -40,8 +40,15 @@ Ou, com o marketplace:
 
 ## Dependências
 
-**Python 3** (só para servir o preview) e um navegador. Nada de `pip install`,
-nada de conta em lugar nenhum, nenhum token.
+**Python 3** e um navegador. Nada de `pip install`.
+
+Opcionais, só para imagens:
+
+| | Para quê | Sem ele |
+|---|---|---|
+| `PEXELS_API_KEY` | buscar foto real, grátis | você fornece as imagens |
+| `KIE_API_KEY` | gerar imagem ilustrativa | idem |
+| `ffmpeg` | redimensionar e converter para webp | a imagem sobe como veio, e o script avisa o peso |
 
 O site que ela gera não precisa de build: é HTML, CSS e um pouco de JS. Nada de
 React, Next ou bundler — hospedagem compartilhada não é lugar disso.
@@ -61,9 +68,11 @@ antes de virar HTML.
 
 - CNPJ, endereço, horário, telefone: pede ou deixa placeholder explícito
 - avaliação, selo, "mais de X clientes": só com fonte
-- **foto**: a ordem é foto real do negócio → Pexels → IA, e **IA só para
-  ilustração**. Nada de recepção, fachada, sala ou equipe gerados, que afirmam
-  como é o lugar sem ser
+- **foto**: se a imagem afirma algo sobre o negócio (fachada, sala, equipe),
+  só foto real deles, ou nenhuma. Nada de recepção ou fachada gerada, que diz
+  como é o lugar sem ser. Para o resto: **Pexels** quando é assunto comum do
+  mundo real, **IA** quando é específico da ideia do site. Quem decide é o
+  agente; o `imagens.py` só executa
 - depoimento: só real, com nome e data, do perfil público do Google
 
 E lê as avaliações **ruins** também, para contar ao dono. Costumam apontar um
@@ -82,7 +91,9 @@ oferece só a vitrine.
 
 - **O brief assume um endereço.** Negócio com várias unidades funciona, mas o
   template não tem lugar para isso ainda
-- **Não gera conteúdo do negócio.** Foto, CNPJ, horário e depoimento vêm de você
+- **Não gera conteúdo do negócio.** CNPJ, horário e depoimento vêm de você
+- **Foto real das instalações tem que vir do dono.** A skill busca e gera o que
+  é ilustrativo, mas não inventa como é o lugar
 - **Não publica.** Ver [cpanel-deploy](../cpanel-deploy/)
 
 ## Licença

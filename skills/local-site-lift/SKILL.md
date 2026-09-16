@@ -51,9 +51,23 @@ Siga nesta ordem. Não pule o brief, e não publique nada antes do usuário apro
 1. Brief do negócio — copie `assets/PRODUCT.template.md` para `PRODUCT.md` e preencha. Leia `references/negocio-local-br.md`.
 2. Captura do site atual — se houver URL, abra, leia o HTML visível, anote textos reais, fotos úteis, páginas e o que falha (lento, ilegível no celular, sem CTA, endereço errado). Guarde o "antes" em `ANTES.md`.
 3. Direção visual — leia `references/design-floor.md`. Escreva em `DESIGN.md` uma paleta de 4 a 6 cores nomeadas, um ou dois tipos, o conceito de layout em uma frase e o elemento que carrega a personalidade. Revise o plano contra os defaults de IA listados no floor. Só então gere código.
-4. Build estático — gere o site em `dist/` (HTML + CSS + JS mínimo + imagens). Mobile primeiro. Uma oferta. Um CTA principal.
-5. Checklist de conversão — confira `references/negocio-local-br.md` antes de chamar pronto.
-6. Preview — sirva `dist/` localmente e peça o ok do usuário:
+4. Imagens — leia a seção "Imagem" do `design-floor.md`. **A decisão é sua, o
+   `scripts/imagens.py` só executa.** Primeiro: a imagem afirma algo sobre o
+   negócio (fachada, sala, equipe)? Então só foto real deles, ou nenhuma. Se
+   não: busque no Pexels quando for assunto comum do mundo real, e gere na
+   kie.ai quando for específico da ideia deste site.
+
+   ```bash
+   python scripts/imagens.py buscar "<termo em ingles>" --n 5 --previa /tmp/p
+   python scripts/imagens.py pegar <id> --out dist/img/hero
+   python scripts/imagens.py gerar "<prompt>" --out dist/img/x   # custa crédito
+   ```
+
+   **Antes de `gerar`, mostre o prompt e espere o ok:** custa crédito.
+
+5. Build estático — gere o site em `dist/` (HTML + CSS + JS mínimo + imagens). Mobile primeiro. Uma oferta. Um CTA principal.
+6. Checklist de conversão — confira `references/negocio-local-br.md` antes de chamar pronto.
+7. Preview — sirva `dist/` localmente e peça o ok do usuário:
 
    ```bash
    python -m http.server 8080 --directory dist
@@ -62,7 +76,7 @@ Siga nesta ordem. Não pule o brief, e não publique nada antes do usuário apro
    Abra `http://localhost:8080`. Confira também na largura de 360px (DevTools,
    modo dispositivo) antes de mostrar — este site vive no celular.
 
-7. Publicar — só com ok explícito, e é outra skill. Peça a **cpanel-deploy**,
+8. Publicar — só com ok explícito, e é outra skill. Peça a **cpanel-deploy**,
    que sobe a pasta `dist/` num cPanel e confere se o endereço no ar é mesmo a
    página nova. Se o usuário hospeda em outro lugar (Vercel, Netlify), o
    `dist/` é estático puro e serve igual.
