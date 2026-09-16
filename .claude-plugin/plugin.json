@@ -26,6 +26,7 @@
   "skills": [
     "./skills/cpanel-deploy",
     "./skills/cut-silence",
-    "./skills/local-site-lift"
+    "./skills/local-site-lift",
+    "./skills/thread-carousel"
   ]
 }

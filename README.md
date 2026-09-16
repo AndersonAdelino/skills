@@ -42,6 +42,7 @@ or `~/.claude/skills/` to have it everywhere.
 |---|---|---|
 | [cut-silence](skills/cut-silence/) | Cuts the pauses out of talking-head video and normalizes audio to -14 LUFS. Runs offline and free. With `--fillers`, also removes filler words, stutters and duplicate takes (costs cents of API to transcribe) | Python, `ffmpeg`, `auto-editor`, `ffmpeg-normalize` |
 | [local-site-lift](skills/local-site-lift/) | Rebuilds an ugly local-business website as a fast static site and publishes it to HostGator cPanel. Decides the visual direction before writing code, and verifies the deployed URL is really serving the new home | Python. A cPanel API token to deploy |
+| [cpanel-deploy](skills/cpanel-deploy/) | Publishes any static folder to a cPanel host and verifies the live URL is really serving the new page. One hosting account, many clients: credentials once, destination per client. Found and fixed four bugs only a real server reveals | Python. A cPanel API token |
 | [thread-carousel](skills/thread-carousel/) | Turns a topic into an Instagram carousel styled like a Twitter thread — white background, short paragraphs, one photo / news card / quote per slide. Researches factual topics, writes the copy, resolves the images, renders 1080×1350 PNGs. Free unless you generate images with AI | Python, Chrome or Edge. Optional: kie.ai and Pexels keys |
 
 Each skill has its own README with installation, usage and known limits.

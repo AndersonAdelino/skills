@@ -16,3 +16,4 @@ jobs:
       - run: python skills/cut-silence/scripts/remove-fillers.py --autoteste
       - run: python skills/cpanel-deploy/scripts/deploy-cpanel.py --autoteste
       - run: python skills/local-site-lift/scripts/imagens.py --autoteste
+      - run: python skills/thread-carousel/scripts/build-carousel.py --autoteste
