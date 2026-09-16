@@ -1,0 +1,6 @@
+{
+  "_comentario": "Copie para config.json na pasta onde ficam seus carrosseis. O script procura ao lado do spec.json e vai subindo ate 3 pastas, entao um arquivo so serve para todos. O avatar e relativo A PASTA DESTE ARQUIVO. Para usar outro perfil em um carrossel especifico, ponha 'perfil' no proprio spec.json: ele ganha deste.",
+  "nome": "Seu Nome",
+  "arroba": "@seuusuario",
+  "avatar": "perfil.jpg"
+}
