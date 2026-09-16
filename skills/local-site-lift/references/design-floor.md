@@ -147,30 +147,42 @@ Cor tem dono. Uma cor de ação (o botão do WhatsApp). Fundo e texto com contra
 
 Espaço é ritmo, não margem aleatória. Seções respiram. No mobile, o dedo precisa do botão grande e do número visível sem pinça.
 
-## Movimento: `reduce` não é tudo ou nada
+## Movimento: anima sempre, com saída explícita
 
-No Windows, `prefers-reduced-motion: reduce` quase sempre significa "desliguei
-efeito visual", não "movimento me dá enjoo". Tratar como desligar tudo entrega
-um site morto a quem só queria economizar GPU — e foi exatamente o que o dono
-viu na máquina dele.
+**Decisão do dono destas skills: o site anima sempre**, sem obedecer
+`prefers-reduced-motion` por padrão.
 
-Separe as duas coisas:
+O motivo é empírico. No Windows esse sinal quase sempre significa "desliguei
+efeito visual por desempenho", não "movimento me dá enjoo" — a opção fica em
+Efeitos Visuais e muita gente desliga sem pensar em acessibilidade. Obedecer
+entregava um site morto para a maioria de quem tem o sinal ligado, e foi o que
+aconteceu na máquina dele.
 
-| | Com `reduce` |
-|---|---|
-| **Transformação**: deslizar, escalar, parallax, revelação no scroll | **some.** É ela que causa desconforto vestibular |
-| **Cor, opacidade, sombra** | **continuam.** Não movem nada, e são o que faz o site responder ao cursor |
+A saída existe e é explícita: **`?anim=0`**.
+
+```html
+<!-- no <head>, ANTES do CSS, para não piscar -->
+<script>
+if (/[?&]anim=0/.test(location.search))
+  document.documentElement.setAttribute('data-sem-anim', '');
+</script>
+```
 
 ```css
-html:not([data-anim]) * {
+html[data-sem-anim] * {
   transition-property: color, background-color, border-color, box-shadow, opacity !important;
   animation: none !important;
 }
-html:not([data-anim]) *:hover { transform: none !important; }
+html[data-sem-anim] *:hover { transform: none !important; }
+html[data-sem-anim] [data-revela] > * { opacity: 1 !important; transform: none !important; }
 ```
 
-E ponha **`?anim=1`** ligando tudo, com o JS escrevendo `data-anim` no `<html>`.
-Sem isso o dono não consegue avaliar o próprio site na máquina dele.
+Repare que mesmo no modo reduzido **cor, opacidade e sombra continuam**: elas
+não movem nada, e são o que faz o site responder ao cursor. O que some é só
+transformação — deslizar, escalar, parallax, revelação no scroll.
+
+O script tem que rodar no `<head>`, antes do CSS. Depois, o conteúdo já pintou
+e a troca pisca.
 
 Fora isso: motion responde a um gesto (abrir menu, passar o cursor) ou a um
 único momento de entrada. Fade e slide em **toda** seção é default de IA.
