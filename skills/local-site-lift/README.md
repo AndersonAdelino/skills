@@ -52,6 +52,9 @@ Opcionais, só para imagens:
 | `KIE_API_KEY` | gerar imagem ilustrativa | idem |
 | `ffmpeg` | redimensionar e converter para webp | a imagem sobe como veio, e o script avisa o peso |
 
+As três chaves têm modelo em `.env.example`: copie para `.env` e preencha só o
+que for usar.
+
 O site que ela gera não precisa de build: é HTML, CSS e um pouco de JS. Nada de
 React, Next ou bundler — hospedagem compartilhada não é lugar disso.
 

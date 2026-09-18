@@ -39,7 +39,7 @@ projeto/clientes/oficina/.env     DEPLOY_PATH, SITE_URL
 
 O script sobe até 4 pastas juntando os `.env`, e o mais próximo ganha. O token
 fica num lugar só, e cada cliente diz apenas para onde vai. Modelo em
-`assets/env.example`.
+`.env.example`.
 
 ## O que ele confere sozinho
 

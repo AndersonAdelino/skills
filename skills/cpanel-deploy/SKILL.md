@@ -60,7 +60,7 @@ próximo, então **o do cliente ganha**. Rode de dentro da pasta do cliente.
 
 `--env arquivo` força um arquivo só e desliga a busca para cima.
 
-Modelo em `assets/env.example`. Detalhes de HostGator, limites de plano e
+Modelo em `.env.example`. Detalhes de HostGator, limites de plano e
 segurança de conta compartilhada em `references/hostgator.md` — **leia antes
 do primeiro deploy**.
 
