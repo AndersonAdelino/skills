@@ -175,13 +175,36 @@ def trocar_emoji(marcado: str, cache: Path) -> str:
 # binaria sobre prosa PT-BR real, nao estimado.
 #
 #   fonte   so texto   com foto   com card
-#    46px        619        336        422
+#    46px        610        331        416
 #    36px        955        610        682
+#
+# A medicao original deu 619 / 336 / 422 com o cabecalho antigo, de avatar 84px
+# e .topo de 84px. O avatar passou para 100px a pedido (o nome estava pequeno
+# demais no feed), e .topo foi junto, entao .corpo caiu de 1094px para 1078px.
+# Os valores acima sao os medidos multiplicados por 1078/1094, arredondados
+# para baixo. Quem mexer no tamanho do cabecalho de novo tem que refazer esta
+# conta, senao o orcamento vira ficcao otimista e o slide estoura calado.
 #
 # Isto NAO preve o render (quem decide e o browser). Serve para uma coisa so:
 # apontar QUAL slide esta puxando o carrossel para baixo, que e justamente o
 # que o browser nao conta, porque ele so aplica o resultado em silencio.
-ORCAMENTO_46 = {None: 619, "imagens": 336, "card": 422, "citacao": 422}
+ORCAMENTO_46 = {None: 610, "imagens": 331, "card": 416, "citacao": 416}
+
+# Os 336 foram medidos com DUAS fotos, que e o bloco de 464px. Uma foto so usa
+# .fotos.uma, que tem 540px, e sobram 518px de texto em vez de 594px: cabem 7
+# linhas em vez de 8. Pela regra de tres daria 294.
+#
+# Mas 294 deixou passar DOIS estouros reais (231 e 284 caracteres), porque o
+# que estoura e linha, nao caractere, e paragrafo que termina no meio da linha
+# gasta a linha inteira. 230 e o teto abaixo dos dois casos observados. Ele
+# acusa alguns slides que caberiam; isso e de proposito, porque um aviso custa
+# nada e o estouro custa uma imagem cortada.
+#
+# Sem separar os dois casos o slide de foto unica estoura CALADO: o texto
+# empurra a imagem para fora e o overflow:hidden corta a foto na borda de
+# baixo, sem barra vermelha nenhuma, porque o ajuste de fonte da pagina mede o
+# texto e nao o bloco visual.
+ORCAMENTO_46_FOTO_UNICA = 225
 
 
 def tipo_do_bloco(slide: dict):
@@ -194,9 +217,16 @@ def tipo_do_bloco(slide: dict):
     return presentes[0] if presentes else None
 
 
+def orcamento_do(slide: dict) -> int:
+    tipo = tipo_do_bloco(slide)
+    if tipo == "imagens" and len(slide["imagens"]) == 1:
+        return ORCAMENTO_46_FOTO_UNICA
+    return ORCAMENTO_46[tipo]
+
+
 def pressao(slide: dict) -> float:
     """Quanto o slide ocupa do proprio orcamento. Acima de 1.0 encolhe todo mundo."""
-    return len(slide.get("texto", "")) / ORCAMENTO_46[tipo_do_bloco(slide)]
+    return len(slide.get("texto", "")) / orcamento_do(slide)
 
 
 # ── infra (nada aqui pode depender de arquivo fora da propria skill) ──────────
@@ -414,14 +444,17 @@ MOLDE = """<!doctype html>
             visibility:hidden; }}          /* medidos, nao vistos */
   .slide.mostrar {{ visibility:visible; z-index:2; }}
   .ph {{ width:100%; border-radius:24px; background:#eee; }}
-  .topo {{ display:flex; align-items:center; gap:22px; height:84px;
-           flex:0 0 auto; margin-bottom:44px; }}
-  .avatar {{ width:84px; height:84px; border-radius:50%; object-fit:cover;
+  /* margin-top + margin-bottom somam os mesmos 44px de antes de proposito: a
+     altura de .corpo nao muda, entao o orcamento de caracteres medido continua
+     valendo. So move o cabecalho para baixo, para o nome nao colar no teto. */
+  .topo {{ display:flex; align-items:center; gap:24px; height:100px;
+           flex:0 0 auto; margin-top:24px; margin-bottom:20px; }}
+  .avatar {{ width:100px; height:100px; border-radius:50%; object-fit:cover;
              background:#cfd9de; flex:0 0 auto; }}
   .vazio {{ display:flex; align-items:center; justify-content:center;
-            font-size:38px; font-weight:700; color:#fff; }}
-  .nome {{ font-size:34px; font-weight:700; color:#0f1419; line-height:1.2; }}
-  .arroba {{ font-size:32px; color:#536471; line-height:1.25; }}
+            font-size:45px; font-weight:700; color:#fff; }}
+  .nome {{ font-size:40px; font-weight:700; color:#0f1419; line-height:1.2; }}
+  .arroba {{ font-size:37px; color:#536471; line-height:1.25; }}
   /* .corpo e a caixa que mede; .miolo e o conteudo, centralizado nela.
      A medida e miolo.offsetHeight vs corpo.clientHeight, nao scrollHeight:
      com flex centralizado o conteudo que nao cabe escapa pelos DOIS lados e o
@@ -441,8 +474,11 @@ MOLDE = """<!doctype html>
   .texto p + p {{ margin-top:{gap}px; }}
   .bloco {{ margin-top:36px; }}
   .fotos {{ display:flex; gap:24px; }}
-  .fotos img {{ width:100%; height:464px; object-fit:cover; border-radius:24px;
-                border:1px solid #cfd9de; }}
+  /* min-width:0 e o que deixa o flex encolher. Sem isso o minimo automatico de
+     um <img> e a largura intrinseca do arquivo, e duas fotos grandes lado a
+     lado vazam para fora do slide em vez de dividir o espaco meio a meio. */
+  .fotos img {{ width:100%; min-width:0; height:464px; object-fit:cover;
+                border-radius:24px; border:1px solid #cfd9de; }}
   .fotos.uma img {{ height:540px; }}
   .card {{ border:1px solid #cfd9de; border-radius:24px; overflow:hidden; }}
   .card .marca {{ display:flex; align-items:center; gap:26px; padding:20px 30px;
@@ -652,7 +688,9 @@ def screenshot(browser: str, pagina: Path, png: Path, perfil_tmp: str):
         "--force-device-scale-factor=1",
         f"--window-size={LARGURA},{ALTURA}",
         "--virtual-time-budget=3000",          # deixa o JS de ajuste rodar
-        f"--screenshot={png}",
+        # resolve(): com caminho relativo o Chrome headless no Windows nao acha
+        # a pasta e nao grava nada, sem erro visivel aqui (capture_output).
+        f"--screenshot={png.resolve()}",
         pagina.resolve().as_uri(),
     ], check=False, capture_output=True, timeout=120)
 
@@ -726,7 +764,7 @@ def montar(spec_path: Path, saida: Path):
     # isso calado. Aqui o culpado tem nome antes do render comecar.
     apertados = [(i, s) for i, s in enumerate(slides, 1) if pressao(s) > 1.0]
     for i, s in sorted(apertados, key=lambda x: -pressao(x[1])):
-        orcamento = ORCAMENTO_46[tipo_do_bloco(s)]
+        orcamento = orcamento_do(s)
         print(f"aviso: o slide {i} tem {len(s['texto'])} caracteres para um "
               f"orcamento de {orcamento}. Ele encolhe a fonte de TODOS os "
               f"slides. Encurte para o carrossel ficar em {FONTE_BASE}px.")
@@ -828,6 +866,26 @@ def autoteste():
     # o mesmo texto com foto aperta mais do que sem: foto rouba espaco
     assert pressao({"texto": SLIDE_LISTA, "imagens": ["a"]}) > \
            pressao({"texto": SLIDE_LISTA})
+
+    # Uma foto so (bloco de 540px) tem que apertar mais que duas (464px).
+    # O caso real: 231 caracteres com UMA foto cortaram o organograma na borda
+    # de baixo do slide 4 do carrossel do Grok Bot Galaxy. Aqueles 231 usaram
+    # 8 linhas em vez das 7 que o orcamento supoe, porque dois dos tres
+    # paragrafos terminavam no meio da linha. Por isso o assert abaixo e
+    # relativo: a estimativa aperta na direcao certa, mas quem decide se coube
+    # continua sendo o browser, e a conferencia final e olhar o preview.
+    uma = {"texto": "x" * 231, "imagens": ["a"]}
+    duas = {"texto": "x" * 231, "imagens": ["a", "b"]}
+    assert pressao(uma) > pressao(duas), "foto unica tem que apertar mais"
+    assert ORCAMENTO_46_FOTO_UNICA < ORCAMENTO_46["imagens"]
+
+    # Os dois estouros reais de foto unica que ja cortaram imagem na borda de
+    # baixo. Sao os numeros de verdade: 231 no slide do organograma (Grok Bot
+    # Galaxy) e 284 no slide do beta (Claude Code Projects). Quem afrouxar o
+    # orcamento sem medir de novo derruba estes dois.
+    for n in (231, 284):
+        assert pressao({"texto": "x" * n, "imagens": ["a"]}) > 1.0, \
+            f"{n} caracteres com uma foto ja cortou imagem de verdade"
 
     # piso alto o bastante para que um slide gigante NAO arraste os outros
     assert FONTE_PISO >= 36, "abaixo de 36px o paredao de texto volta a passar"

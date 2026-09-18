@@ -35,3 +35,9 @@ Thumbs.db
 
 # trabalho de cliente: CNPJ, telefone e endereco nao entram no repo publico
 clientes/
+
+# saida da thread-carousel: foto de perfil, @ do dono da conta e PNG de post
+# pronto. E conteudo pessoal e pesado, o repo guarda a skill e nao o que ela
+# produziu. O config.json fica aqui porque o script procura ao lado do spec e
+# sobe ate 3 pastas, entao a raiz dos carrosseis e o lugar certo dele.
+carrosseis/

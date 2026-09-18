@@ -97,12 +97,30 @@ A estrutura abaixo é o que faz o formato funcionar. Cada slide tem um trabalho:
 
 | Slide | Trabalho |
 |---|---|
-| 1 | **Gancho:** 🚨 + o fato mais alto que você pode sustentar + promessa do que vem + 👉. **Sempre com 2 imagens lado a lado** |
+| 1 | **Gancho:** 🚨 + o fato mais alto que você pode sustentar + promessa do que vem + 👉. **Sempre com 2 imagens lado a lado, e pelo menos uma delas reconhecível em meio segundo** |
 | 2–3 | O que aconteceu, em linguagem de conversa, com o card da fonte real |
 | 4–6 | O mecanismo: a acusação, o número, a lista de específicos (`→` por item) |
 | 7–8 | Por que importa pra quem lê + **a desescalada**: "Mas calma, não é X agora" |
 | 9 | Zoom-out: "isso vai muito além de…" |
-| 10 | CTA: seguir pra acompanhar. Sem link, sem "clica na bio" |
+| 10 | CTA: seguir pra acompanhar. Sem link, sem "clica na bio". **Escreva um CTA novo por carrossel**, amarrado ao assunto daquele. Repetir a mesma frase em todo post treina o leitor a pular o último slide |
+
+**O CTA não promete entrega futura.** `me segue que eu vou testar e contar`,
+`semana que vem eu trago a parte 2`, `vou fazer um tutorial disso` são dívidas
+que você assina em nome do usuário e que ele vai ter que pagar. Quem seguiu por
+causa da promessa cobra, e quem não vê a promessa cumprida desmarca.
+
+| Não | Sim |
+|---|---|
+| `me segue que eu vou testar e contar o que presta` | `se esse tipo de coisa te interessa, me segue` |
+| `semana que vem tem a parte 2` | `abre aí e vê se já apareceu na sua conta` |
+
+Convite para seguir, sim. Compromisso datado, não. A única coisa que o CTA pode
+afirmar é o que a conta **já** faz.
+
+**8 a 10 slides, e 8 é um número legítimo.** Se um slide só repete o vizinho ou
+existe pra fechar a conta, corte: o carrossel fica mais forte com 8 slides que
+o leitor termina do que com 10 em que ele para no sexto. Enche linguiça é o
+único jeito garantido de perder a pessoa no meio.
 
 A desescalada não é opcional. É ela que separa este formato de clickbait: o
 gancho promete o extremo, e o meio do carrossel devolve a medida certa. Sem
@@ -135,6 +153,54 @@ de usar travessão, quebre a frase:
 
 Vírgula, dois-pontos ou ponto final. Nessa ordem de preferência.
 
+#### Não escrever como IA
+
+O travessão é só o sintoma mais visível. O que entrega texto de IA é o ritmo:
+toda frase do mesmo tamanho, deslizando sem travar em nada. Texto humano
+respira. **Leia o slide em voz alta antes de aceitar.** Se travar na boca,
+reescreva.
+
+| Regra | O que fazer |
+|---|---|
+| **Fale, não palestre** | Escreva como quem explica pra alguém do outro lado da mesa. Frase curta, palavra comum |
+| **Varie o ritmo, sem picotar** | Frases todas do mesmo tamanho denunciam. Mas o oposto é pior: `Três pessoas. Três dias. Nenhum saiu.` trava a leitura e soa como slogan de anúncio. A base é a frase longa, que emenda com `e`, `porque`, `então`, `que`. O corte curto é **um por slide, no fim**, onde ele fecha a ideia |
+| **Uma ideia por frase** | Não empilhe adjetivo. Não vire verbo em substantivo pra soar sério: `a implementação da otimização` é `otimizar` |
+| **Especifique ou cale** | `muitos especialistas dizem` não existe. Diga quem, quando, quanto. Sem o detalhe, corte a frase, não invente um genérico |
+| **Não infle** | Nada de `transformador`, `revolucionário`, `essencial nos dias de hoje`. Diga o que a coisa faz |
+
+**Conectivo de manual é lixo.** Parágrafo novo já faz a transição sozinho:
+
+> além disso · portanto · contudo · consequentemente · ademais · não obstante ·
+> é importante ressaltar · vale destacar · cabe ressaltar · no cenário atual ·
+> nos dias de hoje · em última análise · um verdadeiro testemunho
+
+**Vocabulário de brochure, banido.** Se você não falaria numa reunião, não
+escreve:
+
+> robusto · sinergia · otimizar · potencializar · aprimorar · alavancar ·
+> implementar · inovador · transformador · disruptivo · holístico ·
+> multifacetado · abrangente · paisagem · reino · jornada · tapeçaria ·
+> aprofundar · navegar (no figurado)
+
+Em inglês as mesmas: *delve · tapestry · realm · landscape · moreover ·
+furthermore · it's important to note · unlock · leverage · seamless*.
+
+**Três fórmulas proibidas**, porque são o esqueleto de texto de IA:
+
+| Não | Por quê |
+|---|---|
+| `não é apenas X, é Y` | a construção mais carimbada que existe |
+| `não apenas… mas também` | mesma coisa, versão longa |
+| regra de três automática (`A, B e C`) | quando *toda* enumeração tem três itens alinhados, vira métrica, não escrita |
+
+Isso não proíbe a desescalada do slide 7. `Mas calma, não é que X` é uma
+correção de rota, e é dita em voz alta o tempo todo. O que está banido é a
+antítese decorativa, do tipo `não é sobre ferramentas, é sobre pessoas`.
+
+**Abertura e fechamento.** Sem redação escolar (`Em um mundo cada vez mais…`) e
+sem encerramento de TED (`no fim das contas, a jornada só começou`). O slide 1
+abre com o fato. O slide 10 chama pra seguir e acabou.
+
 #### Orçamento de caracteres
 
 Medido no Chrome, não estimado. Acima do orçamento o texto **de todos os
@@ -142,12 +208,25 @@ slides** encolhe junto, porque o carrossel usa um único tamanho de fonte:
 
 | Slide | Fica nos 46px até | Barra vermelha a partir de |
 |---|---|---|
-| Só texto | **619** caracteres | 955 |
-| Com foto | **336** | 610 |
-| Com card ou citação | **422** | 682 |
+| Só texto | **610** caracteres | 955 |
+| Com duas fotos | **331** | 610 |
+| Com **uma** foto | **225** | 610 |
+| Com card ou citação | **416** | 682 |
 
 Escreva dentro da primeira coluna. O script avisa qual slide estourou e quanto,
 antes de renderizar.
+
+**Foto única cabe menos que foto dupla**, porque o bloco passa de 464px para
+540px e o texto perde uma linha. E este é o único estouro que sai *sem* barra
+vermelha: o ajuste de fonte da página mede o texto, não a imagem, então o que
+acontece é a foto ser cortada na borda de baixo do slide. Se a imagem do seu
+slide parece "faltar um pedaço embaixo", é isso, e a correção é encurtar o
+texto.
+
+**Em slide de foto única, conte linha, não caractere: no máximo 6.** O
+orçamento de 230 é conservador de propósito, porque o que estoura é linha, e
+parágrafo que termina no meio da linha gasta a linha inteira. Lista é o caso
+pior, já que cada `→` custa uma linha cheia por mais curta que seja.
 
 **Tem piso também: 30% do orçamento.** O conteúdo é centralizado no slide, mas
 centralizar pouco texto num quadro de 1350px continua parecendo vazio. No
@@ -272,6 +351,12 @@ inteiro, que no projeto de outra pessoa está cheio de credencial alheia.
   desinformação, mesmo quando o texto está certo
 - **O bloco `card` é uma manchete real de um veículo real.** Não invente
   manchete, não invente veículo, não mude o sentido do título pra caber
+- **Logo é marca registrada: baixe o de verdade, nunca gere no kie.ai.** Um
+  modelo sempre devolve o logo *quase* certo, e quase certo num logo é
+  falsificação. O Wikimedia Commons serve, e ele exige User-Agent próprio:
+  `curl -A "..." "https://commons.wikimedia.org/wiki/Special:FilePath/<Arquivo>.svg?width=1024"`
+  já entrega PNG. Usar o logo de uma empresa num carrossel *sobre* aquela
+  empresa é uso editorial e está certo; o que não pode é passar por ela
 - **`imagem` nunca roda sem aprovação.** Custa crédito
 - **Nunca reporte "pronto" sem ter aberto o preview.** O script garante
   dimensão, não garante que a copy ficou boa nem que nenhum slide estourou
